@@ -4,8 +4,6 @@
 
 ![Docker Pulls](https://img.shields.io/docker/pulls/zaixiaxinren/cf-optimizer)
 
-
-
 ![Image Size](https://img.shields.io/docker/image-size/zaixiaxinren/cf-optimizer/latest)
 
 ![Platform](https://img.shields.io/badge/platform-amd64%20%7C%20arm64-blue)
@@ -128,6 +126,7 @@ docker compose build --build-arg CFST_VERSION=2.3.5
 | `latest` | 最新稳定版                          |
 | `1.2.3`  | 固定版本，生产建议用它，避免 `latest` 变更带来意外 |
 | `1.2`    | 同一小版本的最新补丁                     |
+
 
 ---
 
@@ -291,7 +290,6 @@ www.shopify.com:443#企业域名   # 域名（自动 DNS 解析成 IP）
 | `WEBHOOK_URL` / `WEBHOOK_TOKEN` | —                          | `PUSH_MODE=webhook` 时使用                                |
 
 
-
 ---
 
 ## 工作流程（一轮任务做了什么）
@@ -395,131 +393,6 @@ curl -b ck.txt -X POST https://<面板>/<APIPATH>/api/config \
 
 ---
 
-## 发布自己的镜像（Docker Hub）
-
-想把镜像发到 Docker Hub，让别人直接 `docker pull` 用，有两种方式。**推荐用 GitHub Actions**，
-因为 Docker Hub 免费账号已经取消了「自动化构建（Automated Builds）」，只能在本地或 CI 里构建后 push。
-
-### 方式一：GitHub Actions 自动构建（推荐）
-
-推一次 tag，CI 自动构建 amd64 + arm64 双架构并推送到 Docker Hub 和 GHCR。
-
-#### 0. 前置：代码已经在 GitHub 上
-
-如果还没有仓库：
-
-```bash
-git init
-git add .
-git commit -m "init"
-git branch -M main
-
-# 在 github.com 上 New repository 建一个空仓库（不要勾 README / .gitignore，否则会冲突）
-git remote add origin https://github.com/<你的GitHub用户名>/cf-optimizer.git
-git push -u origin main
-```
-
-> 推之前确认 `.gitignore` 生效：`git status` 里**不应该**出现 `data/`、`out/`、`.env`、`cfst`。
-|  |  |  |  |  |
-| --- | --- | --- | --- | --- |
-> 这几个都含敏感信息或几十 MB 的二进制。用 `git ls-files | grep -E "^(data/|out/|\.env$|cfst$)"` 检查，有输出就说明漏了。
-
-#### 1. 注册 Docker Hub 并建仓库
-
-没有账号先去 [hub.docker.com](https://hub.docker.com) 注册（免费）。然后：
-
-Create repository → **Name** 填 `cf-optimizer` → **Visibility** 选 **Public** → Create。
-
-仓库名必须和 workflow 里的 `/cf-optimizer` 一致，否则 push 会被拒。
-
-#### 2. 生成 Access Token
-
-[Account Settings → Security → New Access Token](https://hub.docker.com/settings/security)，
-描述随便填，权限选 **Read & Write**。**保存好，只显示一次**。
-
-> ⚠️ 不要用登录密码。Docker Hub 2021 年后已不支持密码认证，必须用 Token。
-
-#### 3. 在 GitHub 仓库里加两个 Secret
-
-仓库 → Settings → Secrets and variables → Actions → **New repository secret**：
-
-| Name | Value |
-|---|---|
-| `DOCKERHUB_USERNAME` | 你的 Docker Hub 用户名（小写） |
-| `DOCKERHUB_TOKEN` | 上一步生成的 Access Token |
-
-#### 4. 打 tag 推送
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-去仓库的 **Actions** 页面看进度（约 5~10 分钟，主要花在 arm64 的 QEMU 模拟上）。
-完成后镜像就有了：
-
-```bash
-docker pull <你的用户名>/cf-optimizer:latest
-docker pull <你的用户名>/cf-optimizer:1.0.0
-docker buildx imagetools inspect <你的用户名>/cf-optimizer:1.0.0   # 看是否双架构
-```
-
-同时也会推到 `ghcr.io/<你的GitHub用户名>/cf-optimizer`（用内置 `GITHUB_TOKEN`，不用额外配置）。
-
-#### 5. 仓库信息已填好
-
-本仓库的镜像地址已经固定为 `zaixiaxinren/cf-optimizer`，徽章、`docker run` 示例、compose 和
-Dockerfile 里的 OCI 标签都已指向它，**不需要再改**。
-
-如果你是 fork 后改成自己的镜像名：
-
-```bash
-# 把三处地址换成你的用户名
-grep -rn "zaixiaxinren" README.md docker-compose.yml Dockerfile
-```
-
-同时把 `.github/workflows/docker-publish.yml` 里的 `secrets.DOCKERHUB_USERNAME` 保持不写死
-（它读的是 Secret，天然跟着 fork 走）。
-
-### 方式二：本地构建推送
-
-不想配 CI，就在一台能上网的机器上直接推（脚本已经写好了）：
-
-```bash
-docker login -u <你的用户名>          # 密码处填 Access Token
-
-chmod +x publish.sh
-./publish.sh -u <你的用户名> -p 1.0.0        # 只构建本机架构，快
-./publish.sh -u <你的用户名> -p 1.0.0 -m     # 构建 amd64 + arm64，慢但通用
-```
-
-`-m` 需要 QEMU 模拟 arm64，脚本检测到没有会自动装。构建 arm64 时 CloudflareST 会下载
-`cfst_linux_arm64.tar.gz`，Dockerfile 里按 `TARGETARCH` 自动选包，不会装错架构。
-
-### 关于多架构
-
-`Dockerfile` 用 buildx 注入的 `TARGETARCH` 决定下载哪个架构的 CloudflareST：
-
-| 平台 | 下载的包 |
-|---|---|
-| `linux/amd64` | `cfst_linux_amd64.tar.gz` |
-| `linux/arm64` | `cfst_linux_arm64.tar.gz` |
-| `linux/arm/v7` | `cfst_linux_armv7.tar.gz` |
-
-默认只构建 amd64 + arm64（覆盖绝大多数 NAS 和服务器）。要兼容 ARMv7 老设备，
-把 workflow 里的 `platforms` 改成 `linux/amd64,linux/arm64,linux/arm/v7`。
-
-如果目标架构不在支持列表里，构建会直接报错退出，而不是装一个跑不起来的二进制
-——**前提是你在构建上下文里没放本地 `cfst`**，放了的话会无条件使用它。
-
-### 构建加速
-
-- CI 里用了 `cache-from/to: type=gha`，第二次构建基本只跑改动层
-- 本地构建国内网络慢，加 `--build-arg HTTPS_PROXY=http://<代理>:7890` 下载 CloudflareST
-- 想完全离线：把 `cfst` 二进制放到构建目录（`.dockerignore` 里默认**没有**排除它，会一起打包）
-
----
-
 ## 更新 / 卸载
 
 用现成镜像时：
@@ -544,5 +417,20 @@ docker compose logs -f --tail 100
 本项目仅用于学习与研究 Cloudflare 网络质量。请遵守所在地区的法律法规及 Cloudflare 的服务条款，
 不要用于任何违法用途，作者不对使用本程序产生的后果承担责任。
 
+---
+
+## 致谢
+
+本项目站在这些项目的肩膀上，感谢作者的无私付出：
+
+| 项目 | 作用 |
+| --- | --- |
+| [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) | 测速核心。延迟测速与下载测速全部由它完成，本项目的镜像、脚本和参数都基于它封装 |
+| [PAICNI/CFNext](https://github.com/PAICNI/CFNext) | 优选 IP 的落地端。本项目的推送逻辑对接的就是它的面板接口（v3.0.0） |
+| [PoemMisty/CFData-WEB](https://github.com/PoemMisty/CFData-WEB) | 并行下载测速的实现参考。本项目线程池并发测速的思路源自这个项目 |
+
+也感谢所有公开维护优选 IP 列表的作者 —— 没有这些持续更新的数据源，整条链路就没有输入。
+
 CloudflareST 版权归 [XIU2](https://github.com/XIU2/CloudflareSpeedTest) 所有；
-CFNext 版权归 [PAICNI](https://github.com/PAICNI/CFNext) 所有。
+CFNext 版权归 [PAICNI](https://github.com/PAICNI/CFNext) 所有；
+CFData-WEB 版权归 [PoemMisty](https://github.com/PoemMisty/CFData-WEB) 所有。
