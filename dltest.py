@@ -42,7 +42,7 @@ def parse_colo(head):
     return ""
 
 
-def probe(ip, port, url, seconds, report=None, header_only=False):
+def probe(ip, port, url, seconds, report=None, header_only=False, return_meta=False):
     """对单个 IP 做一次限时下载，返回 (MB/s, 数据中心码)。
 
     关键点：要测的是「这个 IP」，但 HTTP 请求的 Host / TLS 的 SNI 必须是测速站点的域名，
@@ -51,6 +51,8 @@ def probe(ip, port, url, seconds, report=None, header_only=False):
 
     report: 可选回调 (ip, 瞬时MB/s, 已下载MB)，测速过程中周期性上报，用于 WebUI 实时显示。
     header_only: 只读到响应头就断开，用来拿 cf-ray 里的数据中心码，几乎不耗流量。
+    return_meta: 额外返回 (MB/s, 机房码, TCP+TLS握手毫秒, 已下载字节数)，
+                 域名直测模式要拿握手耗时当延迟用。
     """
     ip = norm_ip(ip)
     u = urllib.parse.urlsplit(url)
@@ -65,13 +67,22 @@ def probe(ip, port, url, seconds, report=None, header_only=False):
 
     total = 0
     colo = ""
+    tls_ms = 0.0
     t0 = time.time()
     sock = None
     ssock = None
     last_report = 0.0
+
+    def ret(mb, c):
+        """统一出口：域名模式要多带握手耗时和下载量"""
+        if return_meta:
+            return mb, c, tls_ms, total
+        return mb, c
+
     try:
         sock = socket.create_connection((ip, port), timeout=8)
         ssock = ctx.wrap_socket(sock, server_hostname=host)
+        tls_ms = (time.time() - t0) * 1000.0      # TCP 连接 + TLS 握手，当「连接延迟」用
         req = ("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\n"
                "Accept: */*\r\nAccept-Encoding: identity\r\n"
                "Connection: close\r\n\r\n" % (path, host, UA))
@@ -102,7 +113,7 @@ def probe(ip, port, url, seconds, report=None, header_only=False):
                     continue
                 colo = parse_colo(head_buf[:idx])
                 if header_only:
-                    return 0.0, colo
+                    return ret(0.0, colo)
                 rest = head_buf[idx + 4:]
                 body_started = True
                 first_byte = time.time()
@@ -118,14 +129,14 @@ def probe(ip, port, url, seconds, report=None, header_only=False):
                         report(ip, total / el / MB, total / MB)
 
         if not body_started:
-            return 0.0, colo
+            return ret(0.0, colo)
         # 用「首字节到结束」算吞吐，避开 TLS 握手那几百毫秒的干扰
         elapsed = max(0.2, time.time() - first_byte)
         if total <= 0:
-            return 0.0, colo
-        return total / elapsed / MB, colo
+            return ret(0.0, colo)
+        return ret(total / elapsed / MB, colo)
     except Exception:  # noqa: BLE001
-        return 0.0, colo
+        return ret(0.0, colo)
     finally:
         for s in (ssock, sock):
             try:

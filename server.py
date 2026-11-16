@@ -11,6 +11,7 @@ cf-optimizer Web 控制台
   - 一键把结果写进 CFNext 面板（面板地址/密码在网页上填，首次使用会引导）
   - 配置持久化到 /data/web-config.json
 """
+import csv
 import datetime
 import json
 import os
@@ -48,6 +49,11 @@ DEFAULTS = {
     "dn": 10,          # 下载测速数量（从延迟最低的里面取几个测下载）
     "dt": 10,          # 单个 IP 下载测速时长上限（秒）
     "dl_parallel": 4,  # 并行下载测速数量：同时测几个 IP（cfst 自带是串行的）
+    # ---- 域名直测模式 ----
+    # 候选直接按域名测：每个域名各自解析 IP、各自测速，结果按域名聚合取最快。
+    # 走这条链路时不经过 cfst，所以「延迟上限」「下载测速数量」都不生效。
+    "domain_mode": False,
+    "probe_ips": 2,    # 每个域名最多测几个解析出来的 IP
     "speed_url": "https://speed.cloudflare.com/__down?bytes=50000000",
     "suffix_mode": "source",  # source | colo | fixed | none | custom
     "suffix_custom": "{colo}",
@@ -94,6 +100,8 @@ PROG_ALIVE = re.compile(r"可用:\s*(\d+)")
 DL_PROG = re.compile(r"\[dl\] 进度 (\d+)/(\d+)")
 # dltest.py 测速过程中的实时上报：[dl] now 1.2.3.4 5.20 18.40
 DL_NOW = re.compile(r"\[dl\] now (\S+) ([\d.]+) ([\d.]+)")
+# domaintest.py 开跑前先报一遍计划：域名 端口 逗号分隔的 IP 列表
+DL_PLAN = re.compile(r"\[dl\] plan (\S+) (\d+) (\S*)")
 
 
 def load_config():
@@ -346,6 +354,12 @@ def apply_patch(cfg, body):
             v = str(v or "").strip().lower()
             cfg[k] = v if v in ("ipv4", "ipv6", "both") else "ipv4"
             continue
+        if k == "probe_ips":
+            try:
+                cfg[k] = max(1, min(8, int(v)))
+            except (TypeError, ValueError):
+                cfg[k] = DEFAULTS["probe_ips"]
+            continue
         cfg[k] = v
     return cfg
 
@@ -370,6 +384,12 @@ def dl_set_rows(rows):
     """重置「下载测速清单」——延迟测速跑完后把通过的 IP 全列出来"""
     with lock:
         state["dl_rows"] = rows
+
+
+def dl_add_row(row):
+    """往清单里追加一行（域名模式用：每解析出一个域名就加一行）"""
+    with lock:
+        state["dl_rows"].append(row)
 
 
 def dl_mark(ip, status=None, **fields):
@@ -668,35 +688,53 @@ def run_dltest(in_csv, out_csv, params, mode="speed"):
 
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, bufsize=1)
+    alive = _consume_dl_output(proc, phase, dn, mode)
+    rc = proc.wait()
+    set_progress(phase, 1, 1, alive, current_ip="", current_speed="", current_mb="")
+    return rc
+
+
+def _consume_dl_output(proc, phase, total, mode="speed", on_plan=None):
+    """边读测速脚本的 stderr 边刷新进度，返回「测出速度的个数」。
+
+    dltest.py 和 domaintest.py 共用这套日志格式，所以两边都走这里：
+      [dl] now  <主体> <瞬时MB/s> <已下载MB>      测速中途，每 0.5 秒一条
+      [dl] 进度 3/10  <主体> <速度> MB/s <机房码>  单个主体测完
+      [dl] plan <域名> <端口> <ip,ip,...>          域名模式开跑前的计划
+    主体在 IP 模式下是 IP，在域名模式下是域名——dl_rows 里存的就是它，所以能对上。
+    """
     alive = 0
     for line in proc.stderr:
         line = line.strip()
         if not line:
             continue
 
-        # 测速中途的实时速度：[dl] now <ip> <瞬时MB/s> <已下载MB>
+        # [dl] plan <域名> <端口> <逗号分隔的 IP>：域名模式先把清单列出来，页面才有行可显示
+        if on_plan:
+            m = DL_PLAN.search(line)
+            if m:
+                on_plan(m.group(1), int(m.group(2) or 443),
+                        [x for x in m.group(3).split(",") if x])
+                continue
+
+        # 测速中途的实时速度：[dl] now <主体> <瞬时MB/s> <已下载MB>
         m = DL_NOW.search(line)
         if m:
-            ip, mbps = m.group(1), m.group(2)
-            try:
-                if float(mbps) > 0:
-                    pass
-            except ValueError:
-                pass
-            dl_mark(ip, "running", speed=mbps)
+            who, mbps = m.group(1), m.group(2)
+            dl_mark(who, "running", speed=mbps)
             with lock:
                 cur = dict(state["progress"])
-            set_progress(phase, cur.get("done", 0), cur.get("total", dn), alive,
-                         current_ip=ip, current_speed=mbps,
+            set_progress(phase, cur.get("done", 0), cur.get("total", total), alive,
+                         current_ip=who, current_speed=mbps,
                          current_mb=m.group(3))
             continue
 
-        # 单个 IP 测完：[dl] 进度 3/10  1.2.3.4  5.20 MB/s LAX
+        # 单个主体测完：[dl] 进度 3/10  1.2.3.4  5.20 MB/s LAX
         m = DL_PROG.search(line)
         if m:
             parts = line.split()
-            done, total = int(m.group(1)), int(m.group(2))
-            ip = parts[3] if len(parts) > 3 else ""
+            done, tot = int(m.group(1)), int(m.group(2))
+            who = parts[3] if len(parts) > 3 else ""
             spd = parts[4] if len(parts) > 4 and parts[4] != "-" else ""
             colo = parts[-1] if len(parts) > 5 and parts[-1] != "-" else ""
             try:
@@ -705,17 +743,145 @@ def run_dltest(in_csv, out_csv, params, mode="speed"):
             except ValueError:
                 pass
             if mode == "colo":
-                dl_mark(ip, "done", colo=colo)
+                dl_mark(who, "done", colo=colo)
             else:
-                dl_mark(ip, "done", speed=spd, colo=colo)
-            set_progress(phase, done, total, alive,
+                dl_mark(who, "done", speed=spd, colo=colo)
+            set_progress(phase, done, tot, alive,
                          current_ip="", current_speed="", current_mb="")
             continue
 
         append_log(line)
+    return alive
+
+
+def run_domaintest(src, out_csv, params):
+    """域名直测：每个域名各自解析出 IP、各自测速，按域名聚合取最快。
+
+    和老链路的区别只有一个，但很关键：这里不经过 cfst，所以没有「延迟排序取前 N 名」
+    这道截断，每个域名都能被公平测一次。
+    """
+    probe_ips = max(1, min(8, int(params.get("probe_ips") or 2)))
+    par = max(1, min(32, int(params.get("dl_parallel") or 4)))
+    dt = max(1, int(params.get("dt") or 8))
+    port = int(params.get("port") or 443)
+    url = (params.get("speed_url") or "").strip()
+    sl = float(params.get("speed") or 0)
+    ip_mode = (params.get("ip_mode") or "ipv4").strip().lower()
+    if ip_mode not in ("ipv4", "ipv6", "both"):
+        ip_mode = "ipv4"
+
+    cmd = ["python3", os.path.join(HERE, "domaintest.py"), src, out_csv,
+           str(probe_ips), str(par), str(dt), str(port), url, str(sl),
+           ip_mode, "ip"]
+    append_log("[web] 域名直测：每个域名最多测 %d 个 IP，并发 %d，单个上限 %ds，阈值 %.2f MB/s"
+               % (probe_ips, par, dt, sl))
+    set_progress("resolve", 0, 0, 0)
+
+    def on_plan(domain, sport, ips):
+        """domaintest 报的「要测哪个域名、解析到哪些 IP」，先铺成待测清单"""
+        dl_add_row({
+            "ip": domain,                 # 前端把这一列当主体显示
+            "domain": domain,
+            "real_ip": ips[0] if ips else "",
+            "port": sport or port,
+            "loss": "",
+            "latency": "",
+            "speed": "",
+            "colo": "",
+            "status": "wait",
+        })
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, bufsize=1)
+    alive = _consume_dl_output(proc, "download", 0, "speed", on_plan)
     rc = proc.wait()
-    set_progress(phase, 1, 1, alive, current_ip="", current_speed="", current_mb="")
+    set_progress("download", 1, 1, alive, current_ip="", current_speed="", current_mb="")
     return rc
+
+
+def parse_domain_csv(path, params):
+    """domaintest.py 的 CSV -> 网页结果行
+
+    CSV 列：domain,ip,port,latency,speed,colo,remark
+    一行一个域名，ip 是该域名测得最快的那个 IP。
+    """
+    rows = []
+    default_port = int(params.get("port") or 443)
+    try:
+        topn = max(1, int(params.get("topn") or 10))
+    except (TypeError, ValueError):
+        topn = 10
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
+            rd = csv.reader(f)
+            next(rd, None)
+            for r in rd:
+                if len(r) < 7:
+                    continue
+                domain, ip = r[0].strip(), r[1].strip()
+                if not domain or not ip:
+                    continue
+                try:
+                    port = int(r[2]) if r[2].strip() else default_port
+                except ValueError:
+                    port = default_port
+                latency, speed, colo = r[3].strip(), r[4].strip(), r[5].strip()
+                remark = r[6].strip()
+                # 后缀：source 模式下优先用源行备注，没有备注就用域名本身，
+                # 这样面板里一眼就能看出这个 IP 属于哪个优选域名。
+                suffix = build_suffix(params, colo, latency, speed, remark or domain)
+                host = "[%s]" % ip if ":" in ip else ip
+                line = "%s:%d" % (host, port) + (("#" + suffix) if suffix else "")
+                rows.append({
+                    "domain": domain,
+                    "ip": ip,
+                    "port": port,
+                    "loss": "",
+                    "latency": latency,
+                    "speed": speed,
+                    "colo": colo,
+                    "suffix": suffix,
+                    "line": line,
+                })
+    except FileNotFoundError:
+        return rows
+
+    rows.sort(key=lambda r: -_speed_of(r))
+    return rows[:topn]
+
+
+def _speed_of(row):
+    try:
+        return float(row.get("speed") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _scan_domain(ip_text, params):
+    """域名直测的完整流程，返回结果行；异常由 run_scan 统一兜住"""
+    os.makedirs(WORK_DIR, exist_ok=True)
+    src = os.path.join(WORK_DIR, "src.txt")
+    with open(src, "w", encoding="utf-8") as f:
+        f.write(ip_text if ip_text.endswith("\n") else ip_text + "\n")
+
+    out_csv = os.path.join(WORK_DIR, "domain.csv")
+    if os.path.exists(out_csv):
+        os.remove(out_csv)
+
+    rc = run_domaintest(src, out_csv, params)
+    if rc == 3:
+        raise RuntimeError(
+            "域名直测没有域名测出速度。可能是：候选里没有域名（只有 IP 或网段）、"
+            "速度下限 %.2f MB/s 高于实际带宽、或者测速地址在这条线路上不可用。"
+            "看上面日志里「最快的只有多少 MB/s」。" % float(params.get("speed") or 0))
+    if rc != 0:
+        raise RuntimeError("域名直测异常退出（退出码 %s），看上面日志" % rc)
+
+    rows = parse_domain_csv(out_csv, params)
+    if not rows:
+        raise RuntimeError("域名直测没有产出结果：所有域名都是 0 MB/s")
+    return rows
 
 
 def run_scan(params):
@@ -739,6 +905,18 @@ def run_scan(params):
         ip_text = fetch_sources(params)
         if not ip_text.strip():
             raise RuntimeError("候选列表为空：请填写候选列表的网络地址，或粘贴 IP 列表")
+
+        # 域名直测模式：候选按域名测、结果按域名出，不经过 cfst
+        if params.get("domain_mode"):
+            rows = _scan_domain(ip_text, params)
+            with lock:
+                state["result"] = rows
+                state["status"] = "done"
+                state["finished"] = time.time()
+                state["progress"] = {"phase": "done", "done": 1, "total": 1,
+                                     "alive": 0, "percent": 100.0}
+            append_log("[web] 域名直测完成，共 %d 个域名" % len(rows))
+            return
 
         # cfst 只认纯 IP / CIDR，域名和 IP:端口#备注 都会让它直接报错退出，
         # 所以统一先解析成 IP 列表，端口/备注单独存一份映射。
@@ -889,11 +1067,13 @@ def push_state():
             "finished": state["finished"],
             "progress": state["progress"],
             "dl_rows": state["dl_rows"],
+            # 前端据此决定结果表显示「IP」还是「域名」这一列
+            "domain_mode": bool((state.get("params") or {}).get("domain_mode")),
         }
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "cf-optimizer/1.1"
+    server_version = "cf-optimizer/1.1.0"
 
     def log_message(self, fmt, *args):
         pass  # 静音访问日志，避免刷屏

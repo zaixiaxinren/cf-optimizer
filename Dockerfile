@@ -56,7 +56,7 @@ RUN set -eux; \
 
 # 兜底去掉可能的 CRLF，否则 shebang 会报错；装好脚本和 Web 静态页；最后清掉构建上下文
 RUN sed -i 's/\r$//' /src/run.sh /src/entrypoint.sh /src/push_panel.sh /src/server.py \
-      /src/resolve.py /src/format_result.py /src/dltest.py \
+      /src/resolve.py /src/format_result.py /src/dltest.py /src/domaintest.py \
  && install -m755 /src/run.sh /run.sh \
  && install -m755 /src/entrypoint.sh /entrypoint.sh \
  && install -m755 /src/push_panel.sh /push_panel.sh \
@@ -64,6 +64,7 @@ RUN sed -i 's/\r$//' /src/run.sh /src/entrypoint.sh /src/push_panel.sh /src/serv
  && install -m755 /src/resolve.py /resolve.py \
  && install -m755 /src/format_result.py /format_result.py \
  && install -m755 /src/dltest.py /dltest.py \
+ && install -m755 /src/domaintest.py /domaintest.py \
  && mkdir -p /static \
  && cp -r /src/static/. /static/ \
  && rm -rf /src

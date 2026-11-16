@@ -11,6 +11,7 @@ TOP_N="${TOP_N:-10}"
 PORT="${PORT:-443}"
 TAG="${TAG:-auto}"
 SUFFIX_MODE="${SUFFIX_MODE:-source}"   # source=用源列表@备注 / colo=数据中心码 / fixed=固定TAG / none=无后缀
+SUFFIX_CUSTOM="${SUFFIX_CUSTOM:-{colo}}"   # SUFFIX_MODE=custom 时的模板，支持 {colo} {latency} {speed}
 DL_COUNT="${DL_COUNT:-10}"
 DL_TIME="${DL_TIME:-10}"
 DL_PARALLEL="${DL_PARALLEL:-4}"
@@ -19,10 +20,80 @@ PING_TIMES="${PING_TIMES:-4}"
 KEEP_HISTORY="${KEEP_HISTORY:-20}"
 SPEED_URL="${SPEED_URL:-}"
 DISABLE_DL="${DISABLE_DL:-0}"
+# 域名直测模式：候选按域名测，结果也按域名出，绕开 cfst 的延迟排序截断
+DOMAIN_MODE="${DOMAIN_MODE:-0}"
+PROBE_IPS="${PROBE_IPS:-2}"      # 每个域名最多测几个解析出来的 IP
+SNI_MODE="${SNI_MODE:-ip}"       # ip=用测速地址的域名做 SNI / domain=用候选域名做 SNI
 WEBHOOK_URL="${WEBHOOK_URL:-}"
 WEBHOOK_TOKEN="${WEBHOOK_TOKEN:-}"
 
 log() { echo "[$(date '+%F %T')] $*"; }
+
+# ---------- 推送 ----------
+# PUSH_MODE: panel = 直写 CFNext 面板 / webhook = POST 到 Worker / none = 只留本地
+do_push() {
+  _mode="${PUSH_MODE:-none}"
+  case "$_mode" in
+    panel)
+      if [ -z "${PANEL_URL:-}" ] || [ -z "${PANEL_PASSWORD:-}" ]; then
+        log "PUSH_MODE=panel 但缺少 PANEL_URL 或 PANEL_PASSWORD，跳过推送"
+      else
+        log "推送 -> CFNext 面板 $PANEL_URL"
+        if sh /push_panel.sh "$OUT_DIR/result.txt"; then
+          log "面板写入成功"
+        else
+          log "面板写入失败（结果已留在本地，下轮重试）"
+        fi
+      fi
+      ;;
+    webhook)
+      if [ -z "${WEBHOOK_URL:-}" ]; then
+        log "PUSH_MODE=webhook 但 WEBHOOK_URL 为空，跳过推送"
+      else
+        log "推送 -> $WEBHOOK_URL"
+        if curl -fsS -m 40 -X POST "$WEBHOOK_URL" \
+             -H "Content-Type: text/plain; charset=utf-8" \
+             -H "x-token: ${WEBHOOK_TOKEN:-}" \
+             --data-binary @"$OUT_DIR/result.txt" -o /dev/null; then
+          log "推送成功"
+        else
+          log "推送失败（结果已留在本地，下轮会重试）"
+        fi
+      fi
+      ;;
+    *)
+      log "PUSH_MODE=$_mode，只写本地文件"
+      ;;
+  esac
+}
+
+# ---------- 收尾 ----------
+# 两条链路（cfst 延迟+下载测速 / 域名直测）最后都走这里：落盘、留历史、推送
+finalize_result() {
+  _src="$1"
+  _cnt=$(grep -vE '^[[:space:]]*$' "$_src" 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$_cnt" -eq 0 ]; then
+    log "结果为空，放弃本轮"
+    rm -f "$_src"
+    return 3
+  fi
+
+  mv "$_src" "$OUT_DIR/result.txt"
+  cp "$OUT_DIR/result.txt" "$OUT_DIR/result-$(date '+%Y%m%d-%H%M').txt"
+  log "已写出 $_cnt 条到 $OUT_DIR/result.txt"
+
+  # 只留最近 N 份历史
+  ls -1t "$OUT_DIR"/result-*.txt 2>/dev/null | tail -n +"$((KEEP_HISTORY + 1))" | while IFS= read -r f; do
+    rm -f "$f"
+  done
+
+  echo "---- 本轮结果 ----"
+  cat "$OUT_DIR/result.txt"
+  echo "------------------"
+
+  do_push
+  return 0
+}
 
 # ---------- 0. 跟随网页设置 ----------
 # 网页上改过的参数（候选地址、面板地址/密码、阈值、后缀…）优先级最高，
@@ -52,6 +123,7 @@ pairs = [
     ("PANEL_URL", s(cfg.get("panel_url"))),
     ("PANEL_PASSWORD", s(cfg.get("panel_password"))),
     ("SUFFIX_MODE", s(cfg.get("suffix_mode"))),
+    ("SUFFIX_CUSTOM", s(cfg.get("suffix_custom"))),
     ("TAG", s(cfg.get("tag"))),
     ("LATENCY_MAX", s(cfg.get("latency"))),
     ("SPEED_MIN", s(cfg.get("speed"))),
@@ -63,6 +135,7 @@ pairs = [
     ("DL_COUNT", s(cfg.get("dn"))),
     ("DL_TIME", s(cfg.get("dt"))),
     ("DL_PARALLEL", s(cfg.get("dl_parallel"))),
+    ("PROBE_IPS", s(cfg.get("probe_ips"))),
 ]
 for k, v in pairs:
     if v != "":
@@ -70,6 +143,7 @@ for k, v in pairs:
 
 # 复选框：只有显式 true 才算开，否则按关处理（不能用空值，会退回环境变量）
 print("DISABLE_DL=%s" % ("1" if cfg.get("disable_dl") is True else "0"))
+print("DOMAIN_MODE=%s" % ("1" if cfg.get("domain_mode") is True else "0"))
 
 # 定时跑完是否自动推送（网页上的开关）。没存过就沿用 compose 里的 PUSH_MODE
 if "cron_push" in cfg:
@@ -128,6 +202,30 @@ if [ "$CNT" -eq 0 ]; then
   exit 1
 fi
 log "输入 $CNT 条候选，文件 $IP_FILE"
+
+# ---------- 2-A. 域名直测模式（可选）----------
+# 候选直接按域名测：每个域名各自解析出 IP、各自测速，再按域名聚合取最快。
+# 走这条链路就完全不经过 cfst，也就不受「延迟排序前 N 名」的截断影响——
+# 列表里域名多的时候，这一点是关键，否则大部分域名根本没机会被测到。
+if [ "$DOMAIN_MODE" = "1" ]; then
+  mkdir -p "$OUT_DIR" /tmp/cfst
+  log "域名直测模式：每个域名最多测 ${PROBE_IPS} 个 IP，并发 ${DL_PARALLEL}，单个上限 ${DL_TIME}s，SNI=${SNI_MODE}"
+  DOM_CSV=/tmp/cfst/domain.csv
+  rm -f "$DOM_CSV" /tmp/cfst/domain.txt
+  SUFFIX_MODE="$SUFFIX_MODE" SUFFIX_CUSTOM="$SUFFIX_CUSTOM" TAG="$TAG" TOP_N="$TOP_N" \
+  python3 /domaintest.py "$IP_FILE" "$DOM_CSV" "$PROBE_IPS" "$DL_PARALLEL" \
+      "$DL_TIME" "$PORT" "$SPEED_URL" "$SPEED_MIN" "$IP_MODE" "$SNI_MODE"
+  RC=$?
+  if [ "$RC" -ne 0 ] || [ ! -s /tmp/cfst/domain.txt ]; then
+    log "域名直测没有产出结果（退出码 $RC；可能是全部 0 速度，或速度下限 ${SPEED_MIN} MB/s 太高）"
+    log "提示：域名模式下「延迟上限」和「下载测速数量」不生效，起作用的是每个域名的探测 IP 数、并行数和单次时长"
+    exit 2
+  fi
+  TMP="$OUT_DIR/.result.$$"
+  cp /tmp/cfst/domain.txt "$TMP"
+  finalize_result "$TMP"
+  exit $?
+fi
 
 # ---------- 2. 测速 ----------
 mkdir -p "$OUT_DIR" /tmp/cfst
@@ -206,54 +304,5 @@ if [ "$COUNT" -eq 0 ]; then
   exit 3
 fi
 
-mv "$TMP" "$OUT_DIR/result.txt"
-cp "$OUT_DIR/result.txt" "$OUT_DIR/result-$(date '+%Y%m%d-%H%M').txt"
-log "已写出 $COUNT 条到 $OUT_DIR/result.txt"
-
-# 只留最近 N 份历史
-ls -1t "$OUT_DIR"/result-*.txt 2>/dev/null | tail -n +"$((KEEP_HISTORY + 1))" | while IFS= read -r f; do
-  rm -f "$f"
-done
-
-echo "---- 本轮结果 ----"
-cat "$OUT_DIR/result.txt"
-echo "------------------"
-
-# ---------- 4. 推送 ----------
-# PUSH_MODE: panel = 直写 CFNext 面板 / webhook = POST 到 Worker / none = 只留本地
-PUSH_MODE="${PUSH_MODE:-none}"
-
-case "$PUSH_MODE" in
-  panel)
-    if [ -z "${PANEL_URL:-}" ] || [ -z "${PANEL_PASSWORD:-}" ]; then
-      log "PUSH_MODE=panel 但缺少 PANEL_URL 或 PANEL_PASSWORD，跳过推送"
-    else
-      log "推送 -> CFNext 面板 $PANEL_URL"
-      if sh /push_panel.sh "$OUT_DIR/result.txt"; then
-        log "面板写入成功"
-      else
-        log "面板写入失败（结果已留在本地，下轮重试）"
-      fi
-    fi
-    ;;
-  webhook)
-    if [ -z "${WEBHOOK_URL:-}" ]; then
-      log "PUSH_MODE=webhook 但 WEBHOOK_URL 为空，跳过推送"
-    else
-      log "推送 -> $WEBHOOK_URL"
-      if curl -fsS -m 40 -X POST "$WEBHOOK_URL" \
-           -H "Content-Type: text/plain; charset=utf-8" \
-           -H "x-token: ${WEBHOOK_TOKEN:-}" \
-           --data-binary @"$OUT_DIR/result.txt" -o /dev/null; then
-        log "推送成功"
-      else
-        log "推送失败（结果已留在本地，下轮会重试）"
-      fi
-    fi
-    ;;
-  *)
-    log "PUSH_MODE=$PUSH_MODE，只写本地文件"
-    ;;
-esac
-
-exit 0
+finalize_result "$TMP"
+exit $?
