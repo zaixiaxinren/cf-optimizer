@@ -295,6 +295,11 @@
         <div class="hint">可用占位符：<code>{colo}</code> 数据中心 · <code>{latency}</code> 延迟 · <code>{speed}</code> 速度</div>
       </div>
 
+      <div class="btn-row" style="margin-top:18px;align-items:center">
+        <button class="btn primary sm" id="btnSaveAll" onclick="saveAll()">保存以上设置</button>
+        <span class="hint" id="saveAllHint" style="margin:0">改完来源 / 参数 / 后缀点这里存下来</span>
+      </div>
+
       <h2 style="margin-top:18px">CFNext 面板</h2>
 
       <div class="field">
@@ -506,7 +511,10 @@ function postConfig(patch, cb){
   }).then(function(r){ return r.json(); }).then(function(j){
     if (j && j.ok){
       CFG = j.data;
-      fill(CFG);
+      // 注意：这里**不能**再调 fill(CFG)。保存面板/定时设置时，后端返回的是
+      // 服务器上的旧参数，全量回填会把用户刚改、还没保存的「候选来源 / 筛选参数 /
+      // 输出后缀」直接冲掉（刷新后再看就“消失”了）。只刷新派生显示即可。
+      applyDerived(CFG);
       if (cb) cb(true, j);
     } else {
       toast((j && j.msg) || '保存失败', 'err');
@@ -515,6 +523,73 @@ function postConfig(patch, cb){
   }).catch(function(e){
     toast('保存失败: ' + e, 'err');
     if (cb) cb(false, null);
+  });
+}
+
+/* 只刷新「不该被输入框编辑」的派生显示：密码已存标记、定时任务提示与徽章 */
+function applyDerived(cfg){
+  var ps = $('pwdState');
+  if (ps){
+    ps.innerHTML = cfg.panel_password_set
+      ? '<span class="tagstate">已保存</span>' : '';
+  }
+  showCronState(cfg);
+}
+
+/* ---------- 来源 / 参数 / 后缀 的保存与脏标记 ---------- */
+var PARAMS_DIRTY = false;
+
+function markParamsDirty(){
+  if (PARAMS_DIRTY) return;
+  PARAMS_DIRTY = true;
+  var b = $('btnSaveAll'), h = $('saveAllHint');
+  if (b) b.textContent = '保存以上设置（有改动）';
+  if (h){
+    h.textContent = '改动还没保存，刷新页面会丢失';
+    h.style.color = '#fbbf24';
+  }
+}
+
+function clearParamsDirty(){
+  PARAMS_DIRTY = false;
+  var b = $('btnSaveAll'), h = $('saveAllHint');
+  if (b) b.textContent = '保存以上设置';
+  if (h){
+    h.textContent = '改完来源 / 参数 / 后缀点这里存下来';
+    h.style.color = '';
+  }
+}
+
+function saveAll(){
+  var body = collect();
+  if (!body.source_urls.length && !body.source_text.trim()){
+    toast('候选列表地址是空的，至少要填一个', 'err');
+    return;
+  }
+  postConfig(body, function(ok){
+    if (ok){
+      clearParamsDirty();
+      renderUrlRows(CFG.source_urls || []);   // 顺手把空行规整掉
+      toast('设置已保存', 'ok');
+    }
+  });
+}
+
+/* 任一输入发生变化就亮起「未保存」提示，避免改完直接刷新导致回滚 */
+function bindParamDirty(){
+  var lst = $('urlList');
+  if (lst){
+    lst.addEventListener('input', markParamsDirty);
+    lst.addEventListener('click', function(e){
+      var t = e.target;
+      if (t && t.tagName === 'BUTTON') markParamsDirty();   // 增删地址行也算改动
+    });
+  }
+  FIELDS.forEach(function(k){
+    var el = $(k);
+    if (!el) return;
+    el.addEventListener('input', markParamsDirty);
+    el.addEventListener('change', markParamsDirty);
   });
 }
 
@@ -630,7 +705,10 @@ function saveCron(){
   if (on && !expr){ toast('开了定时就要填 cron 表达式', 'err'); return; }
   postConfig({ cron_enabled: on, cron_expr: expr, cron_push: $('cron_push').checked },
     function(ok, j){
-      if (ok) toast((j && j.msg) || '定时设置已保存', 'ok');
+      if (ok){
+        fillCron(CFG);   // 用后端规范化后的值同步输入框，同时清掉「有修改未保存」
+        toast((j && j.msg) || '定时设置已保存', 'ok');
+      }
     });
 }
 
@@ -777,7 +855,11 @@ function startRun(){
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   }).then(function(r){ return r.json(); }).then(function(j){
-    if (j && j.ok){ toast('已开始测速', 'ok'); setStatus('running'); }
+    if (j && j.ok){
+      clearParamsDirty();          // /api/run 会顺带把参数存盘，脏标记可以清了
+      toast('已开始测速', 'ok');
+      setStatus('running');
+    }
     else { toast((j && j.msg) || '启动失败', 'err'); $('btnRun').disabled = false; }
   }).catch(function(e){ toast('请求失败: ' + e, 'err'); $('btnRun').disabled = false; });
 }
@@ -809,6 +891,8 @@ fetch('/api/config').then(function(r){ return r.json(); }).then(function(j){
   CFG = j.data;
   fill(CFG);
   renderUrlRows(CFG.source_urls || []);
+  clearParamsDirty();
+  bindParamDirty();
   if (!CFG.setup_done) showSetup();
   boot();
 }).catch(function(){ boot(); });
