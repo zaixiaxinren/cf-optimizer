@@ -9,7 +9,9 @@
 而这里会把响应的 cf-ray 头解析出来（形如 8f3abc-LAX），把数据中心补上。
 
 用法：
-  dltest.py <in.csv> <out.csv> <dn> <parallel> <seconds> <port> <url> <speed_min>
+  dltest.py <in.csv> <out.csv> <dn> <parallel> <seconds> <port> <url> <speed_min> [mode]
+
+  mode = speed（默认）测下载速度；= colo 只探测数据中心码（读响应头就断开）
 
 只用 Python3 标准库。
 """
@@ -40,12 +42,15 @@ def parse_colo(head):
     return ""
 
 
-def probe(ip, port, url, seconds):
+def probe(ip, port, url, seconds, report=None, header_only=False):
     """对单个 IP 做一次限时下载，返回 (MB/s, 数据中心码)。
 
     关键点：要测的是「这个 IP」，但 HTTP 请求的 Host / TLS 的 SNI 必须是测速站点的域名，
     否则 Cloudflare 会返回 400。所以手工建连接：socket 连到指定 IP，
     SSL 用 server_hostname=域名 握手（相当于 curl --resolve）。
+
+    report: 可选回调 (ip, 瞬时MB/s, 已下载MB)，测速过程中周期性上报，用于 WebUI 实时显示。
+    header_only: 只读到响应头就断开，用来拿 cf-ray 里的数据中心码，几乎不耗流量。
     """
     u = urllib.parse.urlsplit(url)
     host = u.hostname or "speed.cloudflare.com"
@@ -62,6 +67,7 @@ def probe(ip, port, url, seconds):
     t0 = time.time()
     sock = None
     ssock = None
+    last_report = 0.0
     try:
         sock = socket.create_connection((ip, port), timeout=8)
         ssock = ctx.wrap_socket(sock, server_hostname=host)
@@ -94,12 +100,21 @@ def probe(ip, port, url, seconds):
                         break
                     continue
                 colo = parse_colo(head_buf[:idx])
+                if header_only:
+                    return 0.0, colo
                 rest = head_buf[idx + 4:]
                 body_started = True
                 first_byte = time.time()
                 total += len(rest)
             else:
                 total += len(chunk)
+                # 测速过程中每 0.5 秒报一次瞬时速度，WebUI 才能看到「正在测谁、跑到多少」
+                if report:
+                    now = time.time()
+                    if now - last_report >= 0.5:
+                        last_report = now
+                        el = max(0.2, now - first_byte)
+                        report(ip, total / el / MB, total / MB)
 
         if not body_started:
             return 0.0, colo
@@ -173,6 +188,7 @@ def main(argv):
     port = int(float(argv[6] or 443))
     url = argv[7] or "https://speed.cloudflare.com/__down?bytes=50000000"
     speed_min = to_float(argv[8], 0.0)
+    mode = (argv[9] if len(argv) > 9 else "speed").strip().lower()
 
     header, rows = read_csv(in_csv)
     if not rows:
@@ -181,15 +197,44 @@ def main(argv):
 
     # cfst -dd 的输出已按延迟升序，取最靠前的 dn 个做下载测速
     targets = rows[:dn]
-    sys.stderr.write("[dl] 并行下载测速：%d 个 IP，并发 %d，单次上限 %ds，阈值 >=%.2f MB/s\n"
-                     % (len(targets), parallel, seconds, speed_min))
-
     total = len(targets)
     done = 0
     lock = threading.Lock()
 
+    # 只探测数据中心：读响应头就断开，几乎不耗流量，用来给「跳过下载测速」兜底
+    if mode == "colo":
+        sys.stderr.write("[dl] 数据中心探测：%d 个 IP，并发 %d\n" % (total, parallel))
+        with ThreadPoolExecutor(max_workers=parallel) as ex:
+            futs = {ex.submit(probe, t["ip"], port, url, 6, None, True): t for t in targets}
+            for fut in as_completed(futs):
+                t = futs[fut]
+                try:
+                    _, colo = fut.result()
+                except Exception:  # noqa: BLE001
+                    colo = ""
+                if colo and (not t["colo"] or t["colo"].upper() == "N/A"):
+                    t["colo"] = colo
+                with lock:
+                    done += 1
+                    cur = done
+                sys.stderr.write("[dl] 进度 %d/%d  %s  -  %s\n"
+                                 % (cur, total, t["ip"], t["colo"] or "-"))
+        write_csv(out_csv, header, rows)     # 注意：全量写回，不只 targets
+        got = sum(1 for t in targets if t["colo"] and t["colo"].upper() != "N/A")
+        sys.stderr.write("[dl] 探测完成，%d / %d 个拿到数据中心码\n" % (got, total))
+        return 0
+
+    sys.stderr.write("[dl] 并行下载测速：%d 个 IP，并发 %d，单次上限 %ds，阈值 >=%.2f MB/s\n"
+                     % (total, parallel, seconds, speed_min))
+
+    def reporter(ip, mbps, mb):
+        """测速过程中的实时上报，上层按 [dl] now 前缀解析后推给 WebUI"""
+        with lock:
+            sys.stderr.write("[dl] now %s %.2f %.2f\n" % (ip, mbps, mb))
+            sys.stderr.flush()
+
     with ThreadPoolExecutor(max_workers=parallel) as ex:
-        futs = {ex.submit(probe, t["ip"], port, url, seconds): t for t in targets}
+        futs = {ex.submit(probe, t["ip"], port, url, seconds, reporter): t for t in targets}
         for fut in as_completed(futs):
             t = futs[fut]
             try:
@@ -226,7 +271,17 @@ def main(argv):
         sys.stderr.write("[dl] 完成，最快 %s  %.2f MB/s  %s\n"
                          % (best["ip"], to_float(best["speed"]), best["colo"]))
     else:
-        sys.stderr.write("[dl] 没有 IP 达到速度下限，输出为空\n")
+        # 全灭时把「最快多少」说清楚，否则用户只知道失败、不知道差多远
+        fastest = max((to_float(r["speed"]) for r in targets), default=0.0)
+        if speed_min > 0:
+            sys.stderr.write(
+                "[dl] 没有 IP 达标：最高的只有 %.2f MB/s，阈值是 %.2f MB/s，"
+                "差 %.2f。把速度下限调低到 %.1f 以下，或把单次测速时长加到 8~10 秒再试\n"
+                % (fastest, speed_min, max(0.0, speed_min - fastest),
+                   max(0.1, fastest * 0.8)))
+        else:
+            sys.stderr.write("[dl] 没有 IP 测出有效速度（全部 0 MB/s），"
+                             "检查 speed_url 是否可访问、端口是否被墙\n")
     return 0 if kept else 3
 
 

@@ -78,6 +78,8 @@ state = {
     "finished": 0.0,
     "params": {},
     "progress": {"phase": "", "done": 0, "total": 0, "alive": 0, "percent": 0.0},
+    # 延迟测速通过的 IP 清单，网页上按「等测 / 测速中 / 已测完」实时更新
+    "dl_rows": [],
 }
 
 LOG_MAX = 20000
@@ -89,6 +91,8 @@ PROG_PAIR = re.compile(r"(\d+)\s*/\s*(\d+)\s*\[")
 PROG_ALIVE = re.compile(r"可用:\s*(\d+)")
 # dltest.py 的进度行：[dl] 进度 3/10  1.2.3.4  5.20 MB/s LAX
 DL_PROG = re.compile(r"\[dl\] 进度 (\d+)/(\d+)")
+# dltest.py 测速过程中的实时上报：[dl] now 1.2.3.4 5.20 18.40
+DL_NOW = re.compile(r"\[dl\] now (\S+) ([\d.]+) ([\d.]+)")
 
 
 def load_config():
@@ -346,13 +350,32 @@ def append_log(text):
         state["log"] = (state["log"] + text + "\n")[-LOG_MAX:]
 
 
-def set_progress(phase, done, total, alive):
+def set_progress(phase, done, total, alive, **extra):
     pct = round(done * 100.0 / total, 1) if total else 0.0
     with lock:
-        state["progress"] = {
+        p = {
             "phase": phase, "done": done, "total": total,
             "alive": alive, "percent": pct,
         }
+        p.update(extra)
+        state["progress"] = p
+
+
+def dl_set_rows(rows):
+    """重置「下载测速清单」——延迟测速跑完后把通过的 IP 全列出来"""
+    with lock:
+        state["dl_rows"] = rows
+
+
+def dl_mark(ip, status=None, **fields):
+    """更新清单里某个 IP 的状态；status: wait / running / done"""
+    with lock:
+        for r in state["dl_rows"]:
+            if r["ip"] == ip:
+                if status:
+                    r["status"] = status
+                r.update(fields)
+                return
 
 
 def clean_ip_lines(raw):
@@ -421,6 +444,40 @@ def build_suffix(params, colo, latency, speed, remark=""):
                    .replace("{latency}", str(latency))
                    .replace("{speed}", str(speed)))
     return colo if colo and colo != "N/A" else tag
+
+
+def read_latency_rows(path, default_port=443, meta=None):
+    """延迟测速的 CSV -> 网页上「待测下载」的清单。
+
+    这里不做速度过滤、也不按 topn 截断：用户要看到所有通过延迟测速的 IP。
+    """
+    rows = []
+    meta = meta or {}
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return rows
+
+    for ln in lines[1:]:
+        parts = ln.split(",")
+        if len(parts) < 7:
+            continue
+        ip = parts[0].strip()
+        if not ip:
+            continue
+        src_port, _remark = meta.get(ip, (default_port, ""))
+        colo = parts[6].strip()
+        rows.append({
+            "ip": ip,
+            "port": src_port or default_port,
+            "loss": parts[3].strip(),
+            "latency": parts[4].strip(),
+            "speed": "",
+            "colo": "" if colo.upper() == "N/A" else colo,
+            "status": "wait",
+        })
+    return rows
 
 
 def parse_csv(path, params, meta=None):
@@ -560,11 +617,12 @@ def run_cfst(cmd):
     return proc.wait()
 
 
-def run_dltest(in_csv, out_csv, params):
-    """并行下载测速：把 cfst -dd 的 CSV 补上速度列，结果写到 out_csv。
+def run_dltest(in_csv, out_csv, params, mode="speed"):
+    """并行下载测速（mode=speed）或只探测数据中心（mode=colo）。
 
     cfst 自带的下载测速是串行的（-dn 个 IP 一个接一个），dltest.py 用线程池同时测，
     并发数由 dl_parallel 控制。速度阈值也在这里过滤。
+    返回 dltest.py 的退出码：0 有结果 / 3 全被过滤 / 其它是异常。
     """
     dn = max(1, int(params.get("dn") or 10))
     par = max(1, min(32, int(params.get("dl_parallel") or 4)))
@@ -575,9 +633,15 @@ def run_dltest(in_csv, out_csv, params):
 
     cmd = ["python3", os.path.join(HERE, "dltest.py"), in_csv, out_csv,
            str(dn), str(par), str(dt), str(port), url, str(sl)]
-    append_log("[web] 并行下载测速：取前 %d 个 IP，并发 %d，单个上限 %ds，阈值 %.2f MB/s"
-               % (dn, par, dt, sl))
-    set_progress("download", 0, dn, 0)
+    phase = "download"
+    if mode == "colo":
+        cmd.append("colo")
+        phase = "colo"
+        append_log("[web] 数据中心探测：跳过下载测速，只读响应头补 cf-ray 机房码")
+    else:
+        append_log("[web] 并行下载测速：取前 %d 个 IP，并发 %d，单个上限 %ds，阈值 %.2f MB/s"
+                   % (dn, par, dt, sl))
+    set_progress(phase, 0, dn, 0)
 
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, bufsize=1)
@@ -586,19 +650,48 @@ def run_dltest(in_csv, out_csv, params):
         line = line.strip()
         if not line:
             continue
+
+        # 测速中途的实时速度：[dl] now <ip> <瞬时MB/s> <已下载MB>
+        m = DL_NOW.search(line)
+        if m:
+            ip, mbps = m.group(1), m.group(2)
+            try:
+                if float(mbps) > 0:
+                    pass
+            except ValueError:
+                pass
+            dl_mark(ip, "running", speed=mbps)
+            with lock:
+                cur = dict(state["progress"])
+            set_progress(phase, cur.get("done", 0), cur.get("total", dn), alive,
+                         current_ip=ip, current_speed=mbps,
+                         current_mb=m.group(3))
+            continue
+
+        # 单个 IP 测完：[dl] 进度 3/10  1.2.3.4  5.20 MB/s LAX
         m = DL_PROG.search(line)
         if m:
+            parts = line.split()
             done, total = int(m.group(1)), int(m.group(2))
-            if "MB/s" in line:
-                try:
-                    if float(line.split("MB/s")[0].split()[-1]) > 0:
-                        alive += 1
-                except (ValueError, IndexError):
-                    pass
-            set_progress("download", done, total, alive)
+            ip = parts[3] if len(parts) > 3 else ""
+            spd = parts[4] if len(parts) > 4 and parts[4] != "-" else ""
+            colo = parts[-1] if len(parts) > 5 and parts[-1] != "-" else ""
+            try:
+                if spd and float(spd) > 0:
+                    alive += 1
+            except ValueError:
+                pass
+            if mode == "colo":
+                dl_mark(ip, "done", colo=colo)
+            else:
+                dl_mark(ip, "done", speed=spd, colo=colo)
+            set_progress(phase, done, total, alive,
+                         current_ip="", current_speed="", current_mb="")
             continue
+
         append_log(line)
     rc = proc.wait()
+    set_progress(phase, 1, 1, alive, current_ip="", current_speed="", current_mb="")
     return rc
 
 
@@ -614,6 +707,7 @@ def run_scan(params):
         state["params"] = params
         state["progress"] = {"phase": "resolve", "done": 0, "total": 0,
                              "alive": 0, "percent": 0.0}
+        state["dl_rows"] = []
 
     try:
         os.makedirs(WORK_DIR, exist_ok=True)
@@ -674,10 +768,34 @@ def run_scan(params):
 
         rc = run_cfst(cmd)
 
+        # 延迟测速跑完，先把通过的 IP 全部列出来：网页上要能看到「有哪些 IP、延迟多少，
+        # 然后逐个测下载」。这一步不做速度过滤，也不按 topn 截断。
+        lat_rows = read_latency_rows(csv_path, int(params.get("port") or 443), meta)
+        dl_set_rows([dict(r) for r in lat_rows])
+        if lat_rows:
+            append_log("[web] 延迟测速通过 %d 个 IP，接下来逐个测下载速度" % len(lat_rows))
+
         if not params.get("disable_dl"):
             dl_csv = os.path.join(WORK_DIR, "speed.csv")
-            run_dltest(csv_path, dl_csv, params)
-            csv_path = dl_csv
+            rc2 = run_dltest(csv_path, dl_csv, params)
+            if rc2 == 3:
+                raise RuntimeError(
+                    "下载测速没有 IP 达到速度下限 %.2f MB/s，本轮不产出结果。"
+                    "上面日志里有「最快只有多少 MB/s」，按提示调低阈值或把单次测速时长"
+                    "加到 8~10 秒再试。" % float(params.get("speed") or 0))
+            if rc2 != 0:
+                raise RuntimeError("下载测速异常退出（退出码 %s），看上面日志" % rc2)
+            if os.path.exists(dl_csv):
+                csv_path = dl_csv
+        else:
+            # 跳过下载测速时，仍要补数据中心码，否则「数据中心」后缀会退化成固定文本 auto
+            colo_csv = os.path.join(WORK_DIR, "colo.csv")
+            try:
+                run_dltest(csv_path, colo_csv, params, mode="colo")
+                if os.path.exists(colo_csv) and os.path.getsize(colo_csv) > 0:
+                    csv_path = colo_csv
+            except Exception as e:  # noqa: BLE001
+                append_log("[web] 数据中心探测失败（不影响结果）：%s" % e)
         set_progress("parse", 1, 1, 0)
 
         rows = parse_csv(csv_path, params, meta)
@@ -744,6 +862,7 @@ def push_state():
             "started": state["started"],
             "finished": state["finished"],
             "progress": state["progress"],
+            "dl_rows": state["dl_rows"],
         }
 
 

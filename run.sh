@@ -166,7 +166,14 @@ fi
 
 # ---------- 2.1 并行下载测速 ----------
 if [ "$DISABLE_DL" = "1" ]; then
-  log "已跳过下载测速，按延迟排序"
+  # 跳过下载测速也必须有数据中心码，否则 colo 后缀会退化成固定文本（默认 auto）
+  log "已跳过下载测速，只探测数据中心（读 cf-ray 响应头，不下载正文）"
+  if python3 /dltest.py /tmp/cfst/result.csv /tmp/cfst/colo.csv \
+       "$DL_COUNT" "$DL_PARALLEL" 6 "$PORT" "$SPEED_URL" 0 colo; then
+    mv /tmp/cfst/colo.csv /tmp/cfst/result.csv
+  else
+    log "数据中心探测失败，按原样输出（后缀可能退化成固定文本）"
+  fi
 else
   log "并行下载测速：取前 ${DL_COUNT} 个 IP，并发 ${DL_PARALLEL}，单个上限 ${DL_TIME}s，阈值 ${SPEED_MIN} MB/s"
   if python3 /dltest.py /tmp/cfst/result.csv /tmp/cfst/speed.csv \

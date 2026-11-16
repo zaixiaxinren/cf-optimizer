@@ -115,6 +115,25 @@
   .prog-sub b { color: #cbd5e1; font-weight: 600; font-family: ui-monospace, monospace; }
   .prog-sub .rest b { color: #fbbf24; }
 
+  /* ---- 下载测速：延迟通过的 IP 清单 + 实时速度 ---- */
+  .dl-now {
+    margin-top: 10px; font-size: 12px; line-height: 1.6;
+    font-family: ui-monospace, Menlo, Consolas, monospace; color: #86efac;
+  }
+  .dl-now .ip { color: #e2e8f0; font-weight: 600; }
+  .dl-wrap {
+    margin-top: 10px; max-height: 210px; overflow-y: auto;
+    border-top: 1px solid #1f242e;
+  }
+  .dl-wrap table { font-size: 12px; }
+  .dl-wrap td { padding: 5px 8px; }
+  .dl-wrap td.spd { font-family: ui-monospace, monospace; color: var(--dim); }
+  .dl-wrap tr.run td { background: rgba(59,130,246,.10); }
+  .dl-wrap tr.run td.spd { color: #60a5fa; font-weight: 600; }
+  .dl-wrap tr.done td { color: #7c8899; }
+  .dl-wrap tr.done td.spd { color: #86efac; }
+  .hidden { display: none !important; }
+
   pre.log {
     background: #0a0d12; border: 1px solid var(--brd); border-radius: 8px;
     padding: 10px 12px; margin: 0; max-height: 240px; overflow: auto;
@@ -376,6 +395,17 @@
         <div class="prog-sub">
           <span class="rest" id="progRest"></span>
           <span id="progAlive"></span>
+        </div>
+
+        <!-- 延迟测速通过后在这里列出 IP，并逐个显示实时下载速度 -->
+        <div class="dl-now hidden" id="dlNow"></div>
+        <div class="dl-wrap hidden" id="dlWrap">
+          <table>
+            <thead><tr>
+              <th>IP</th><th>延迟</th><th>丢包</th><th>下载速度</th><th>机房</th><th>状态</th>
+            </tr></thead>
+            <tbody id="dlBody"></tbody>
+          </table>
         </div>
       </div>
 
@@ -758,6 +788,12 @@ function renderProgress(p, status){
       if (p.total > p.done) restHtml = '还剩 <b>' + (p.total - p.done) + '</b> 个没测';
       aliveHtml = '可用 <b>' + (p.alive || 0) + '</b>';
       break;
+    case 'colo':
+      label = '探测数据中心…';
+      cls = 'prog-fill dl';
+      if (p.total) numTxt = p.done + ' / ' + p.total + ' · ' + pct + '%';
+      aliveHtml = '已有 <b>' + (p.alive || 0) + '</b> 个拿到机房码';
+      break;
     case 'parse':
       label = '整理结果…';
       width = 99;
@@ -812,6 +848,47 @@ function esc(s){
   });
 }
 
+/* 下载测速清单：延迟测速一通过就全部列出来，然后逐个刷新实时速度 */
+function renderDlList(rows, p){
+  var nowEl = $('dlNow'), wrap = $('dlWrap'), body = $('dlBody');
+  if (!nowEl || !wrap || !body) return;
+
+  if (!rows || !rows.length){
+    nowEl.className = 'dl-now hidden';
+    nowEl.innerHTML = '';
+    wrap.className = 'dl-wrap hidden';
+    body.innerHTML = '';
+    return;
+  }
+
+  var curIp = (p && p.current_ip) || '';
+  if (curIp){
+    nowEl.className = 'dl-now';
+    nowEl.innerHTML = '正在测 <span class="ip">' + esc(curIp) + '</span> · '
+      + '<b>' + esc((p && p.current_speed) || '0') + ' MB/s</b>'
+      + (p && p.current_mb ? '（已下载 ' + esc(p.current_mb) + ' MB）' : '');
+  } else {
+    nowEl.className = 'dl-now hidden';
+    nowEl.innerHTML = '';
+  }
+
+  wrap.className = 'dl-wrap';
+  var h = '';
+  rows.forEach(function(r){
+    var st = r.status || 'wait';
+    var label = st === 'done' ? '完成' : (st === 'running' ? '测速中' : '等待');
+    var spd = r.speed ? (r.speed + ' MB/s') : '—';
+    h += '<tr class="' + st + '">'
+       + '<td class="mono">' + esc(r.ip) + '</td>'
+       + '<td class="mono">' + esc(r.latency) + ' ms</td>'
+       + '<td class="mono">' + esc(r.loss) + '</td>'
+       + '<td class="spd">' + esc(spd) + '</td>'
+       + '<td>' + (r.colo ? '<span class="colo">' + esc(r.colo) + '</span>' : '—') + '</td>'
+       + '<td>' + label + '</td></tr>';
+  });
+  body.innerHTML = h;
+}
+
 function poll(){
   fetch('/api/state').then(function(r){ return r.json(); }).then(function(j){
     if (!j || !j.ok) return;
@@ -821,6 +898,7 @@ function poll(){
     lg.scrollTop = lg.scrollHeight;
     renderResult(d.result || []);
     renderProgress(d.progress, d.status);
+    renderDlList(d.dl_rows, d.progress);
 
     if (d.status === 'running'){
       setStatus('running');
