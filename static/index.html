@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CF 优选控制台</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg: #0d1017;
+    --card: #161a22;
+    --card2: #1c212b;
+    --brd: #262c38;
+    --txt: #e6e9ef;
+    --dim: #8b95a7;
+    --acc: #3b82f6;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --err: #ef4444;
+  }
+  body {
+    margin: 0; padding: 20px;
+    background: radial-gradient(1200px 600px at 20% -10%, #16233a 0%, var(--bg) 55%);
+    color: var(--txt);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+  h1 { font-size: 19px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  .badge {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    background: #1f2937; color: var(--dim); border: 1px solid var(--brd);
+  }
+  .badge.run { background: rgba(59,130,246,.15); color: #93c5fd; border-color: #1e40af; }
+  .badge.ok  { background: rgba(34,197,94,.15); color: #86efac; border-color: #166534; }
+  .badge.err { background: rgba(239,68,68,.15); color: #fca5a5; border-color: #991b1b; }
+  .grid { display: grid; grid-template-columns: 420px 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--brd);
+    border-radius: 12px; padding: 16px;
+  }
+  .card h2 {
+    font-size: 13px; font-weight: 600; margin: 0 0 14px;
+    color: var(--dim); text-transform: uppercase; letter-spacing: .8px;
+  }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 5px; }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    width: 100%; padding: 8px 10px; border-radius: 8px;
+    background: var(--card2); border: 1px solid var(--brd);
+    color: var(--txt); font-size: 13px; font-family: inherit; outline: none;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--acc); }
+  textarea { resize: vertical; min-height: 70px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .hint { font-size: 11px; color: #6b7688; margin-top: 4px; line-height: 1.5; }
+  .hint code {
+    background: #0a0d12; padding: 1px 4px; border-radius: 3px;
+    font-size: 10.5px; color: #9fb0c7;
+  }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 9px 16px; border-radius: 8px; border: 1px solid transparent;
+    font-size: 13px; font-weight: 500; cursor: pointer; transition: .15s;
+    font-family: inherit;
+  }
+  .btn.primary { background: var(--acc); color: #fff; }
+  .btn.primary:hover { background: #2f6fd8; }
+  .btn.ghost { background: transparent; color: var(--txt); border-color: var(--brd); }
+  .btn.ghost:hover { background: var(--card2); }
+  .btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 7px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 10px; margin-top: 4px; }
+
+  /* ---- 候选地址多行 ---- */
+  .urlrow { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+  .urlrow input { flex: 1; min-width: 0; }
+  .urlrow .idx {
+    width: 18px; flex: none; text-align: center;
+    font-size: 11px; color: #55617a; font-family: ui-monospace, monospace;
+  }
+  .url-del {
+    flex: none; width: 30px; height: 32px; border-radius: 7px; cursor: pointer;
+    background: transparent; border: 1px solid var(--brd); color: #8b95a7;
+    font-size: 13px; line-height: 1; transition: .15s;
+  }
+  .url-del:hover { border-color: #7f1d1d; color: #fca5a5; background: rgba(239,68,68,.08); }
+
+  /* ---- 进度条 ---- */
+  .prog-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 10px; margin-bottom: 8px; font-size: 12.5px;
+  }
+  .prog-head .phase { font-weight: 600; color: var(--txt); }
+  .prog-head .num { color: var(--dim); font-family: ui-monospace, monospace; font-size: 12px; }
+  .prog-track {
+    height: 10px; background: #0a0d12; border: 1px solid var(--brd);
+    border-radius: 99px; overflow: hidden;
+  }
+  .prog-fill {
+    height: 100%; width: 0; border-radius: 99px;
+    background: linear-gradient(90deg, #2563eb, #60a5fa);
+    transition: width .35s ease;
+  }
+  .prog-fill.dl { background: linear-gradient(90deg, #059669, #34d399); }
+  .prog-fill.ok { background: linear-gradient(90deg, #16a34a, #4ade80); }
+  .prog-fill.err { background: linear-gradient(90deg, #b91c1c, #f87171); }
+  .prog-sub {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin-top: 8px; font-size: 11.5px; color: var(--dim);
+  }
+  .prog-sub b { color: #cbd5e1; font-weight: 600; font-family: ui-monospace, monospace; }
+  .prog-sub .rest b { color: #fbbf24; }
+
+  pre.log {
+    background: #0a0d12; border: 1px solid var(--brd); border-radius: 8px;
+    padding: 10px 12px; margin: 0; max-height: 240px; overflow: auto;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px; line-height: 1.55; color: #9fb0c7; white-space: pre-wrap; word-break: break-all;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { padding: 7px 8px; text-align: left; border-bottom: 1px solid #1f242e; }
+  th { color: var(--dim); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; }
+  td.mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .colo {
+    display: inline-block; padding: 1px 7px; border-radius: 5px;
+    background: rgba(59,130,246,.14); color: #93c5fd; font-size: 11.5px;
+    font-family: ui-monospace, monospace;
+  }
+  .out {
+    background: #0a0d12; border: 1px solid var(--brd); border-radius: 8px;
+    padding: 10px 12px; margin-top: 12px; font-family: ui-monospace, monospace;
+    font-size: 12px; white-space: pre-wrap; color: #86efac; max-height: 200px; overflow: auto;
+  }
+  .empty { color: var(--dim); text-align: center; padding: 28px 0; font-size: 13px; }
+  .toast {
+    position: fixed; right: 20px; bottom: 20px; padding: 11px 16px;
+    border-radius: 9px; background: var(--card2); border: 1px solid var(--brd);
+    font-size: 13px; opacity: 0; transform: translateY(8px);
+    transition: .2s; pointer-events: none; max-width: 460px; z-index: 99;
+  }
+  .toast.show { opacity: 1; transform: none; }
+  .toast.ok { border-color: #166534; color: #86efac; }
+  .toast.err { border-color: #991b1b; color: #fca5a5; }
+
+  /* ---- 首次使用引导 ---- */
+  .modal {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(5,8,14,.8); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal.hide { display: none; }
+  .modal-box {
+    width: min(480px, 94vw); background: var(--card);
+    border: 1px solid var(--brd); border-radius: 14px; padding: 24px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.55);
+  }
+  .modal-box h3 { margin: 0 0 6px; font-size: 16px; }
+  .modal-box p { margin: 0 0 16px; font-size: 12.5px; color: var(--dim); line-height: 1.65; }
+  .modal-box .skip {
+    display: block; text-align: center; margin-top: 12px;
+    font-size: 12px; color: #6b7688; cursor: pointer; text-decoration: underline;
+  }
+  .modal-box .skip:hover { color: var(--dim); }
+  .tagstate {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+    background: rgba(34,197,94,.14); color: #86efac; margin-left: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CF 优选控制台</h1>
+    <span class="badge" id="status">空闲</span>
+    <span class="badge" id="timer" style="display:none"></span>
+    <span class="badge" id="cronBadge" style="display:none"></span>
+  </header>
+
+  <div class="grid">
+    <!-- ============ 左：参数 ============ -->
+    <div class="card">
+      <h2>候选来源</h2>
+
+      <div class="field">
+        <label>候选列表网络地址（可填多个，合并后去重）</label>
+        <div id="urlList"></div>
+        <button class="btn ghost sm" onclick="addUrlRow()">+ 添加一个地址</button>
+        <div class="hint">
+          每个地址都要是公开可访问的 txt。每行可以是 <code>1.1.1.1</code>、<code>1.1.1.0/24</code>、
+          <code>1.1.1.1:443</code>、<code>1.1.1.1:443#备注</code>，也可以是域名
+          （<code>www.shopify.com:443#企业域名</code>，会自动 DNS 解析成 IP）；<code>#</code> 开头为注释。
+          多个地址里的同一 IP 只会测一次。
+        </div>
+      </div>
+
+      <div class="field">
+        <label>或者直接粘贴 IP 列表（和上面的地址一起用）</label>
+        <textarea id="source_text" placeholder="104.16.0.0/24&#10;172.64.0.0/24&#10;162.159.132.53"></textarea>
+      </div>
+
+      <h2 style="margin-top:18px">筛选参数</h2>
+
+      <div class="row">
+        <div class="field">
+          <label>端口</label>
+          <input type="number" id="port" value="443">
+        </div>
+        <div class="field">
+          <label>延迟上限 (ms)</label>
+          <input type="number" id="latency" value="350">
+        </div>
+      </div>
+      <div class="hint" style="margin:-6px 0 12px">实测这台 NAS 到 LAX 约 204~209ms，阈值设 200 会一条结果都没有</div>
+
+      <div class="row">
+        <div class="field">
+          <label>速度下限 (MB/s)</label>
+          <input type="number" id="speed" value="0" step="0.1">
+        </div>
+        <div class="field">
+          <label>保留条数</label>
+          <input type="number" id="topn" value="10">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>并发线程</label>
+          <input type="number" id="threads" value="100">
+        </div>
+        <div class="field">
+          <label>Ping 次数</label>
+          <input type="number" id="ping_times" value="4">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>测速地址</label>
+        <input type="text" id="speed_url" value="https://speed.cloudflare.com/__down?bytes=50000000">
+        <div class="hint">官方默认的 cf.xiu2.xyz 在这条线路返回 403</div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>下载测速数量</label>
+          <input type="number" id="dn" value="10">
+        </div>
+        <div class="field">
+          <label>并行下载数</label>
+          <input type="number" id="dl_parallel" value="4" min="1" max="32">
+        </div>
+      </div>
+      <div class="hint" style="margin:-6px 0 12px">
+        从延迟最低的 IP 里取这么多个测下载速度；<b>并行下载数</b>是同时测几个（1~32）。
+        并发越高越省时间，但几个 IP 抢同一条带宽，测出的速度会偏低——要准确数值就设 1。
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>单个测速时长 (秒)</label>
+          <input type="number" id="dt" value="10">
+        </div>
+      </div>
+
+      <div class="field">
+        <label><input type="checkbox" id="disable_dl" style="width:auto;margin-right:6px">跳过下载测速（只比延迟，快很多）</label>
+      </div>
+
+      <h2 style="margin-top:18px">输出后缀</h2>
+
+      <div class="field">
+        <label>后缀模式</label>
+        <select id="suffix_mode">
+          <option value="source">源列表里的 #备注（推荐）</option>
+          <option value="colo">数据中心（如 #SJC）</option>
+          <option value="fixed">固定文本</option>
+          <option value="none">不带后缀</option>
+          <option value="custom">自定义模板</option>
+        </select>
+        <div class="hint">源列表每行自带的 <code>#备注</code>（如 <code>#企业域名 | OpenAI</code>）会原样作为后缀；没有备注时回退到数据中心码</div>
+      </div>
+
+      <div class="field">
+        <label>固定文本</label>
+        <input type="text" id="tag" value="auto">
+      </div>
+
+      <div class="field">
+        <label>自定义模板</label>
+        <input type="text" id="suffix_custom" value="{colo}">
+        <div class="hint">可用占位符：<code>{colo}</code> 数据中心 · <code>{latency}</code> 延迟 · <code>{speed}</code> 速度</div>
+      </div>
+
+      <h2 style="margin-top:18px">CFNext 面板</h2>
+
+      <div class="field">
+        <label>面板入口地址</label>
+        <input type="text" id="panel_url" placeholder="https://your-panel.pages.dev/xxxx">
+        <div class="hint">就是登录时浏览器地址栏里那个完整地址（含入口路径），不是首页域名</div>
+      </div>
+
+      <div class="field">
+        <label>面板管理密码 <span id="pwdState"></span></label>
+        <input type="password" id="panel_password" placeholder="留空表示不修改已保存的密码" autocomplete="new-password">
+      </div>
+
+      <button class="btn ghost sm" onclick="savePanel()">保存面板设置</button>
+
+      <h2 style="margin-top:18px">定时任务</h2>
+
+      <div class="field">
+        <label>
+          <input type="checkbox" id="cron_enabled" style="width:auto;margin-right:6px" onchange="markCronDirty()">
+          启用定时自动测速
+        </label>
+        <div class="hint">关闭后不再按时间自动跑，随时可以点下面的「开始测速」手动跑</div>
+      </div>
+
+      <div class="field">
+        <label>运行频率</label>
+        <select id="cron_preset" onchange="onPresetChange()">
+          <option value="0 * * * *">每 1 小时</option>
+          <option value="0 */2 * * *">每 2 小时（推荐）</option>
+          <option value="0 */4 * * *">每 4 小时</option>
+          <option value="0 */6 * * *">每 6 小时</option>
+          <option value="0 */12 * * *">每 12 小时</option>
+          <option value="0 4 * * *">每天凌晨 4:00</option>
+          <option value="0 8,20 * * *">每天 8:00 和 20:00</option>
+          <option value="30 3 * * 1">每周一 3:30</option>
+          <option value="__custom__">自定义…</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>cron 表达式（分 时 日 月 周）</label>
+        <input type="text" id="cron_expr" placeholder="0 */2 * * *" oninput="onCronInput()">
+        <div class="hint" id="cronHint">—</div>
+      </div>
+
+      <div class="field">
+        <label>
+          <input type="checkbox" id="cron_push" style="width:auto;margin-right:6px" onchange="markCronDirty()">
+          定时跑完自动推送到 CFNext
+        </label>
+      </div>
+
+      <button class="btn ghost sm" onclick="saveCron()">保存定时设置</button>
+      <div class="hint">保存后立即生效，不用重启容器</div>
+
+      <div class="btn-row" style="margin-top:18px">
+        <button class="btn primary" id="btnRun" onclick="startRun()">开始测速</button>
+        <button class="btn ghost" id="btnPush" onclick="doPush()" disabled>推送到 CFNext</button>
+      </div>
+    </div>
+
+    <!-- ============ 右：进度 + 日志 + 结果 ============ -->
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <h2>测速进度</h2>
+        <div class="prog-head">
+          <span class="phase" id="progPhase">等待开始</span>
+          <span class="num" id="progNum"></span>
+        </div>
+        <div class="prog-track">
+          <div class="prog-fill" id="progFill"></div>
+        </div>
+        <div class="prog-sub">
+          <span class="rest" id="progRest"></span>
+          <span id="progAlive"></span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h2>运行日志</h2>
+        <pre class="log" id="log">等待开始…</pre>
+      </div>
+
+      <div class="card">
+        <h2>测速结果 <span id="cnt" style="color:var(--dim);font-weight:400;text-transform:none"></span></h2>
+        <div id="resultBox">
+          <div class="empty">还没有结果</div>
+        </div>
+        <div class="out" id="pushOut" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 首次使用引导 -->
+<div class="modal hide" id="setupMask">
+  <div class="modal-box">
+    <h3>首次使用：连接 CFNext 面板</h3>
+    <p>
+      测完的优选 IP 要推到 CFNext 面板上，需要面板入口地址和管理密码。填完存在本机
+      <code>/data/web-config.json</code>，以后可以在左侧「CFNext 面板」里随时改。
+    </p>
+    <div class="field">
+      <label>面板入口地址</label>
+      <input type="text" id="setup_url" placeholder="https://your-panel.pages.dev/xxxx">
+    </div>
+    <div class="field">
+      <label>面板管理密码</label>
+      <input type="password" id="setup_pwd" placeholder="登录面板用的密码" autocomplete="new-password">
+    </div>
+    <button class="btn primary" style="width:100%" onclick="saveSetup()">保存并开始使用</button>
+    <span class="skip" onclick="skipSetup()">先跳过，只在本机测速</span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var FIELDS = ['source_text','port','latency','speed','topn','threads','ping_times',
+              'dn','dt','dl_parallel',
+              'disable_dl','speed_url','suffix_mode','suffix_custom','tag','panel_url'];
+var CFG = {};
+var pollHandle = null;
+var lastErr = '';
+
+function $(id){ return document.getElementById(id); }
+
+function toast(msg, kind){
+  var el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + (kind || '');
+  clearTimeout(el._t);
+  el._t = setTimeout(function(){ el.className = 'toast ' + (kind || ''); }, 4200);
+}
+
+/* ---------- 候选地址多行 ---------- */
+function addUrlRow(val){
+  var wrap = document.createElement('div');
+  wrap.className = 'urlrow';
+  wrap.innerHTML = '<span class="idx"></span>'
+    + '<input type="text" class="url-input" placeholder="https://example.com/ip.txt">'
+    + '<button class="url-del" title="删除这个地址" onclick="removeUrlRow(this)">&#10005;</button>';
+  wrap.querySelector('input').value = val || '';
+  $('urlList').appendChild(wrap);
+  renumber();
+  if (!val) wrap.querySelector('input').focus();
+}
+
+function removeUrlRow(btn){
+  var row = btn.closest('.urlrow');
+  if (row) row.remove();
+  renumber();
+  if (!$('urlList').children.length) addUrlRow();
+}
+
+function renumber(){
+  var rows = $('urlList').querySelectorAll('.urlrow');
+  for (var i = 0; i < rows.length; i++){
+    rows[i].querySelector('.idx').textContent = (i + 1) + '.';
+  }
+}
+
+function renderUrlRows(list){
+  $('urlList').innerHTML = '';
+  (list && list.length ? list : ['']).forEach(function(u){ addUrlRow(u); });
+}
+
+function collectUrls(){
+  var out = [];
+  var inputs = $('urlList').querySelectorAll('.url-input');
+  for (var i = 0; i < inputs.length; i++){
+    var v = inputs[i].value.trim();
+    if (v) out.push(v);
+  }
+  return out;
+}
+
+/* ---------- 配置收发 ---------- */
+function collect(){
+  var o = { source_urls: collectUrls() };
+  FIELDS.forEach(function(k){
+    var el = $(k);
+    if (!el) return;
+    if (el.type === 'checkbox') o[k] = el.checked;
+    else if (el.type === 'number') o[k] = el.value === '' ? 0 : Number(el.value);
+    else o[k] = el.value;
+  });
+  return o;
+}
+
+function fill(cfg){
+  FIELDS.forEach(function(k){
+    var el = $(k);
+    if (!el || cfg[k] === undefined) return;
+    if (el.type === 'checkbox') el.checked = !!cfg[k];
+    else el.value = cfg[k];
+  });
+  $('pwdState').innerHTML = cfg.panel_password_set
+    ? '<span class="tagstate">已保存</span>' : '';
+  fillCron(cfg);
+}
+
+function postConfig(patch, cb){
+  fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch)
+  }).then(function(r){ return r.json(); }).then(function(j){
+    if (j && j.ok){
+      CFG = j.data;
+      fill(CFG);
+      if (cb) cb(true, j);
+    } else {
+      toast((j && j.msg) || '保存失败', 'err');
+      if (cb) cb(false, j);
+    }
+  }).catch(function(e){
+    toast('保存失败: ' + e, 'err');
+    if (cb) cb(false, null);
+  });
+}
+
+/* ---------- 首次使用引导 ---------- */
+function showSetup(){
+  $('setupMask').classList.remove('hide');
+  $('setup_url').value = CFG.panel_url || '';
+  // 密码可能已经在 .env / compose 里配好了，那就只差一个地址
+  $('setup_pwd').placeholder = CFG.panel_password_set
+    ? '已保存过，留空表示沿用' : '登录面板用的密码';
+  setTimeout(function(){ $('setup_url').focus(); }, 60);
+}
+
+function saveSetup(){
+  var url = $('setup_url').value.trim();
+  var pwd = $('setup_pwd').value;
+  if (!url){ toast('面板地址必填', 'err'); return; }
+  if (!pwd && !CFG.panel_password_set){ toast('面板密码必填', 'err'); return; }
+  var patch = { panel_url: url, setup_done: true };
+  if (pwd) patch.panel_password = pwd;
+  postConfig(patch, function(ok){
+    if (ok){
+      $('setupMask').classList.add('hide');
+      $('panel_password').value = '';
+      toast('面板配置已保存，开始用吧', 'ok');
+    }
+  });
+}
+
+function skipSetup(){
+  postConfig({ setup_done: true }, function(ok){
+    if (ok){
+      $('setupMask').classList.add('hide');
+      toast('已跳过，推送前记得在左侧填面板信息', '');
+    }
+  });
+}
+
+function savePanel(){
+  var url = $('panel_url').value.trim();
+  var pwd = $('panel_password').value;
+  if (!url){ toast('面板入口地址不能为空', 'err'); return; }
+  var patch = { panel_url: url, setup_done: true };
+  if (pwd) patch.panel_password = pwd;     // 留空就不覆盖已存的密码
+  postConfig(patch, function(ok){
+    if (ok){
+      $('panel_password').value = '';
+      toast(pwd ? '面板地址和密码都已保存' : '面板地址已保存（密码未改动）', 'ok');
+    }
+  });
+}
+
+/* ---------- 定时任务 ---------- */
+var CRON_DIRTY = false;
+
+function normExpr(s){ return String(s || '').trim().replace(/\s+/g, ' '); }
+
+function fillCron(cfg){
+  $('cron_enabled').checked = cfg.cron_enabled !== false;
+  $('cron_push').checked = cfg.cron_push !== false;
+  $('cron_expr').value = cfg.cron_expr || '';
+  syncPreset();
+  CRON_DIRTY = false;
+  showCronState(cfg);
+}
+
+function showCronState(cfg){
+  var hint = $('cronHint'), badge = $('cronBadge'), html;
+  if (CRON_DIRTY){
+    html = '有修改还没保存，点下面的「保存定时设置」才生效';
+  } else if (cfg.cron_enabled === false){
+    html = '当前：<b>已关闭</b>，只在手动点「开始测速」时运行';
+  } else if (cfg.cron_valid === false){
+    html = '<b style="color:#fca5a5">表达式格式不对</b>，请修正后再保存';
+  } else {
+    html = '当前：<b>' + esc(cfg.cron_expr || '') + '</b><br>下次运行 <b>'
+         + esc(cfg.cron_next_human || '—') + '</b>';
+  }
+  hint.innerHTML = html;
+
+  if (!CRON_DIRTY && cfg.cron_enabled !== false && cfg.cron_valid !== false
+      && cfg.cron_next_human){
+    badge.style.display = '';
+    badge.className = 'badge';
+    badge.textContent = '下次 ' + cfg.cron_next_human;
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function syncPreset(){
+  var cur = normExpr($('cron_expr').value), sel = $('cron_preset'), hit = '__custom__';
+  for (var i = 0; i < sel.options.length; i++){
+    if (sel.options[i].value === cur){ hit = cur; break; }
+  }
+  sel.value = hit;
+}
+
+function markCronDirty(){ CRON_DIRTY = true; showCronState(CFG); }
+
+function onPresetChange(){
+  var v = $('cron_preset').value;
+  if (v === '__custom__'){ markCronDirty(); $('cron_expr').focus(); return; }
+  $('cron_expr').value = v;
+  markCronDirty();
+}
+
+function onCronInput(){ syncPreset(); markCronDirty(); }
+
+function saveCron(){
+  var on = $('cron_enabled').checked;
+  var expr = normExpr($('cron_expr').value);
+  if (on && !expr){ toast('开了定时就要填 cron 表达式', 'err'); return; }
+  postConfig({ cron_enabled: on, cron_expr: expr, cron_push: $('cron_push').checked },
+    function(ok, j){
+      if (ok) toast((j && j.msg) || '定时设置已保存', 'ok');
+    });
+}
+
+function refreshCronState(){
+  if (CRON_DIRTY) return;
+  fetch('/api/config').then(function(r){ return r.json(); }).then(function(j){
+    if (!j || !j.ok) return;
+    CFG.cron_valid = j.data.cron_valid;
+    CFG.cron_next_human = j.data.cron_next_human;
+    CFG.cron_active = j.data.cron_active;
+    showCronState(CFG);
+  }).catch(function(){});
+}
+
+/* ---------- 状态与进度 ---------- */
+function setStatus(s, extra){
+  var el = $('status');
+  var map = { idle:['空闲',''], running:['测速中','run'], done:['已完成','ok'], error:['失败','err'] };
+  var m = map[s] || [s, ''];
+  el.textContent = extra || m[0];
+  el.className = 'badge ' + m[1];
+}
+
+function renderProgress(p, status){
+  p = p || {};
+  var ph = p.phase || (status === 'error' ? 'error' : 'idle');
+  var pct = p.total ? Math.min(100, Math.round(p.done * 100 / p.total)) : 0;
+
+  var label = '等待开始', numTxt = '', restHtml = '', aliveHtml = '';
+  var cls = 'prog-fill', width = pct;
+
+  switch (ph){
+    case 'resolve':
+      label = '拉取并解析候选列表…';
+      width = 0;
+      break;
+    case 'latency':
+      label = '延迟测速';
+      numTxt = p.done + ' / ' + p.total + ' · ' + pct + '%';
+      if (p.total > p.done) restHtml = '还剩 <b>' + (p.total - p.done) + '</b> 个没测';
+      if (p.alive) aliveHtml = '可用 <b>' + p.alive + '</b>';
+      break;
+    case 'download':
+      label = '下载测速';
+      cls = 'prog-fill dl';
+      numTxt = p.done + ' / ' + p.total + ' · ' + pct + '%';
+      if (p.total > p.done) restHtml = '还剩 <b>' + (p.total - p.done) + '</b> 个没测';
+      aliveHtml = '可用 <b>' + (p.alive || 0) + '</b>';
+      break;
+    case 'parse':
+      label = '整理结果…';
+      width = 99;
+      break;
+    case 'done':
+      label = '完成';
+      cls = 'prog-fill ok';
+      width = 100;
+      numTxt = '100%';
+      break;
+    case 'error':
+      label = '失败';
+      cls = 'prog-fill err';
+      width = 0;
+      break;
+    default:
+      label = '等待开始';
+      width = 0;
+  }
+
+  $('progPhase').textContent = label;
+  $('progNum').textContent = numTxt;
+  $('progRest').innerHTML = restHtml;
+  $('progAlive').innerHTML = aliveHtml;
+  var f = $('progFill');
+  f.className = cls;
+  f.style.width = width + '%';
+}
+
+function renderResult(rows){
+  var box = $('resultBox');
+  $('cnt').textContent = rows.length ? '（' + rows.length + ' 条）' : '';
+  $('btnPush').disabled = rows.length === 0;
+  if (!rows.length){
+    box.innerHTML = '<div class="empty">还没有结果</div>';
+    return;
+  }
+  var h = '<table><thead><tr><th>输出行</th><th>延迟</th><th>速度</th><th>丢包</th><th>数据中心</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    h += '<tr><td class="mono">' + esc(r.line) + '</td>'
+       + '<td class="mono">' + esc(r.latency) + ' ms</td>'
+       + '<td class="mono">' + esc(r.speed) + '</td>'
+       + '<td class="mono">' + esc(r.loss) + '</td>'
+       + '<td><span class="colo">' + esc(r.colo) + '</span></td></tr>';
+  });
+  box.innerHTML = h + '</tbody></table>';
+}
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+
+function poll(){
+  fetch('/api/state').then(function(r){ return r.json(); }).then(function(j){
+    if (!j || !j.ok) return;
+    var d = j.data;
+    var lg = $('log');
+    lg.textContent = d.log || '等待开始…';
+    lg.scrollTop = lg.scrollHeight;
+    renderResult(d.result || []);
+    renderProgress(d.progress, d.status);
+
+    if (d.status === 'running'){
+      setStatus('running');
+      $('btnRun').disabled = true;
+      if (d.started){
+        var s = Math.max(0, Math.round((Date.now()/1000 - d.started)));
+        $('timer').style.display = '';
+        $('timer').textContent = s + ' 秒';
+      }
+    } else {
+      $('btnRun').disabled = false;
+      $('timer').style.display = 'none';
+      setStatus(d.status === 'error' ? 'error' : (d.status === 'done' ? 'done' : 'idle'));
+      if (d.status === 'error' && d.error && d.error !== lastErr){
+        lastErr = d.error;
+        toast(d.error, 'err');
+      }
+    }
+  }).catch(function(){});
+}
+
+function startRun(){
+  var body = collect();
+  if (!body.source_urls.length && !body.source_text.trim()){
+    toast('请填写候选列表地址，或粘贴 IP 列表', 'err');
+    return;
+  }
+  $('pushOut').style.display = 'none';
+  $('btnRun').disabled = true;
+  fetch('/api/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(r){ return r.json(); }).then(function(j){
+    if (j && j.ok){ toast('已开始测速', 'ok'); setStatus('running'); }
+    else { toast((j && j.msg) || '启动失败', 'err'); $('btnRun').disabled = false; }
+  }).catch(function(e){ toast('请求失败: ' + e, 'err'); $('btnRun').disabled = false; });
+}
+
+function doPush(){
+  $('btnPush').disabled = true;
+  $('pushOut').style.display = '';
+  $('pushOut').textContent = '正在推送…';
+  fetch('/api/push', { method: 'POST' }).then(function(r){ return r.json(); }).then(function(j){
+    $('pushOut').textContent = j.msg || '';
+    $('pushOut').style.color = j.ok ? '#86efac' : '#fca5a5';
+    toast(j.ok ? '已写入 CFNext 面板' : '推送失败，看下方输出', j.ok ? 'ok' : 'err');
+    $('btnPush').disabled = false;
+  }).catch(function(e){
+    $('pushOut').textContent = '请求失败: ' + e;
+    $('btnPush').disabled = false;
+  });
+}
+
+/* ---------- 启动 ---------- */
+function boot(){
+  poll();
+  pollHandle = setInterval(poll, 1000);
+  setInterval(refreshCronState, 30000);   // 「下次运行」是会走的，定期跟后端对一次
+}
+
+fetch('/api/config').then(function(r){ return r.json(); }).then(function(j){
+  if (!j || !j.ok) return;
+  CFG = j.data;
+  fill(CFG);
+  renderUrlRows(CFG.source_urls || []);
+  if (!CFG.setup_done) showSetup();
+  boot();
+}).catch(function(){ boot(); });
+</script>
+</body>
+</html>

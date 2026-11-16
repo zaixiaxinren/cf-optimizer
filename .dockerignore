@@ -1,0 +1,30 @@
+# ---- 绝不进镜像的敏感/运行时数据 ----
+# data/web-config.json 里存着 CFNext 面板密码，一旦进镜像层就清不掉
+data/
+out/
+.env
+.env.*
+!.env.example
+
+# ---- 不需要进镜像的开发文件 ----
+.git/
+.gitignore
+.dockerignore
+.github/
+__pycache__/
+*.py[cod]
+*.md
+!README.md
+docs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- 构建期临时文件 ----
+# 注意：cfst 二进制是「可选加速」用的，本地有就打包，没有则自动下载
+# 如果你想离线构建，把下面两行注释掉即可
+# cfst
+# CloudflareST
+*.tar.gz
+*.log

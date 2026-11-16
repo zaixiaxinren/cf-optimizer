@@ -1,0 +1,19 @@
+# 运行时数据（配置里含面板密码，绝不提交）
+data/
+out/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 构建上下文里的 CloudflareST 二进制（约 8MB，需要时自行下载）
+cfst
+CloudflareST
+*.tar.gz
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

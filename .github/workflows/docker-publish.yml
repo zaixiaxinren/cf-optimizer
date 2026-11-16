@@ -1,0 +1,79 @@
+name: Build and push image
+
+# 触发方式：
+#   1) 打 tag 推送（推荐，会同时产出 latest 和版本号标签）
+#        git tag v1.0.0 && git push origin v1.0.0
+#   2) 手动在 Actions 页面点 Run workflow
+#   3) 推 main 分支（默认关掉，想开就把下面两行注释解开，省 CI 时间）
+on:
+  push:
+    tags: ["v*"]
+  #   branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # arm64 构建需要 QEMU 模拟
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 自动生成标签：v1.2.3 -> 1.2.3 / 1.2 / latest
+      # 注意：secrets 上下文在 workflow 级 env 里不可用，所以这里直接写表达式
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/cf-optimizer
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # 只出 amd64 + arm64。要兼容 ARMv7 老设备就加 ,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # 留空 = 用 CloudflareST 最新版；想固定版本填 2.3.5
+          build-args: |
+            CFST_VERSION=
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "### 已推送的镜像" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,105 @@
+# 就一个容器：CloudflareST 定时测速 + 结果发布
+# 注意：这里刻意不设置任何代理环境变量，测速必须走直连
+services:
+  cf-optimizer:
+    # ---- 用哪个镜像 ----
+    # 方式一（推荐）：直接用 Docker Hub 上的公开镜像
+    image: YOUR_DOCKERHUB_USER/cf-optimizer:latest
+    # 方式二：自己构建。把上面 image 改成 cf-optimizer:local，并解开下面这行
+    # build: .
+    container_name: cf-optimizer
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+
+      # ---- Web 控制台 ----
+      # 浏览器打开 http://<NAS-IP>:8090 手动触发测速、看结果、一键推送
+      WEB_PORT: "8090"
+
+      # ---- 定时 ----
+      # 定时规则现在直接在网页上改（左栏「定时任务」，改完立即生效，不用重启）。
+      # 这里的 CRON 只是「网页上还没设置过」时的初始兜底值，设过一次之后就不再读了。
+      # 标准 cron 五段式：分 时 日 月 周
+      #   每 1 小时     -> "0 * * * *"
+      #   每 2 小时     -> "0 */2 * * *"
+      #   每天 8/20 点 -> "0 8,20 * * *"
+      CRON: "0 */2 * * *"
+      # 容器启动时是否立刻先跑一轮（1=跑，0=等定时）。有 WebUI 了默认不自动跑
+      RUN_ON_START: "0"
+
+      # ===================================================================
+      # 下面这些是「兜底默认值」。
+      # 候选地址、阈值、后缀、面板地址/密码这些，实际都以网页上保存的为准
+      # （存在 /data/web-config.json）。网页上填过就不再读这里，所以平时
+      # 直接开 http://<NAS-IP>:8090 改就行，不用改这个文件。
+      # ===================================================================
+
+      # ---- 筛选条件：什么算"符合要求" ----
+      # 实测你这台 NAS 到 Cloudflare LAX 的 TCP 延迟是 204~209ms，
+      # 所以阈值不能设 200（会把结果全卡掉，实测一轮 0 结果）。设 350 留余量。
+      LATENCY_MAX: "350"   # 平均延迟上限 ms，超过丢弃
+      # SPEED_MIN: 0 表示不按速度过滤（仍会测速并按速度排序）。
+      # 注意：实测你这条线到 Cloudflare 只有约 3.4MB/s，设成 5 会一条结果都出不来。
+      # 想筛就设 1 或 2，别超过实际带宽。
+      SPEED_MIN: "0"
+      TOP_N: "10"          # 最终最多保留几个
+      PORT: "443"          # 测速与输出使用的端口
+
+      # ---- 下载测速地址 ----
+      # 官方默认的 cf.xiu2.xyz 在当前线路返回 403，这里换成 Cloudflare 官方测速端点。
+      # 想跳过下载测速只比延迟，把 DISABLE_DL 设为 "1"（更快，但没有速度数据）。
+      SPEED_URL: "https://speed.cloudflare.com/__down?bytes=50000000"
+      DISABLE_DL: "0"
+
+      # ---- 下载测速 ----
+      # DL_COUNT    : 从延迟最低的 IP 里取几个测下载速度
+      # DL_PARALLEL : 并行下载测速数量，同时测几个 IP（cfst 自带的是串行的）
+      # DL_TIME     : 单个 IP 下载测速时长上限（秒）
+      # 注意：并发越高越省时间，但几个 IP 抢同一条带宽，测出的速度会偏低。
+      #       想要准确数值就设 DL_PARALLEL=1（纯串行，慢）。
+      DL_COUNT: "10"
+      DL_PARALLEL: "4"
+      DL_TIME: "10"
+
+      # ---- 输出格式 ----
+      # 后缀来源：
+      #   source = 用候选列表里那一行自带的 #备注（如 #企业域名 | OpenAI），
+      #            没有备注就回退到数据中心码（推荐，适合 bestcf 这类带备注的列表）
+      #   colo   = 用 cfst 识别出的数据中心（如 #SJC）
+      #   fixed  = 用下面的 TAG
+      #   none   = 不带后缀
+      SUFFIX_MODE: "source"
+      TAG: "auto"          # SUFFIX_MODE=fixed 时用它；数据中心识别失败(N/A)时也回退到它
+      KEEP_HISTORY: "20"   # 历史结果保留份数
+
+      # ---- 推送方式 ----
+      # panel   = 直写 CFNext 面板的「优选 IP」列表（推荐，不用建 Worker）
+      # webhook = POST 到自建 Worker，面板再填那个 URL
+      # none    = 只写本地 /out，不推送
+      PUSH_MODE: "panel"
+
+      # ---- 方案 A：直写 CFNext 面板 ----
+      # 面板入口地址和管理密码现在都在网页上填（首次打开会引导），存在
+      # /data/web-config.json 里，随时可以在左侧「CFNext 面板」里改。
+      # 下面两项只在网页上还没填时作为兜底，留空即可。
+      PANEL_URL: ""
+      PANEL_PASSWORD: "${PANEL_PASSWORD:-}"
+
+      # 是否顺带把面板的订阅模式切成「只用优选 IP」。
+      # 1 = 每次推送时把 optimizer.subMode 设为 custom、subIncludeDefault 设为 false，
+      #     这样订阅里「只」出现本次测速结果；
+      # 0 = 不动你的订阅模式，优选 IP 只是被追加到候选池里（会和默认 IP 混着用）。
+      PANEL_FORCE_CUSTOM: "1"
+
+      # ---- 方案 B：Worker 中转（PUSH_MODE=webhook 时才用）----
+      WEBHOOK_URL: ""
+      WEBHOOK_TOKEN: ""
+
+    ports:
+      - "8090:8090"
+
+    volumes:
+      # 相对路径：数据落在 compose 文件同级的 data/ 和 out/ 里
+      # 想放别处就换成绝对路径，例如 /vol1/1000/docker/cf-optimizer/data:/data
+      - ./data:/data
+      - ./out:/out
