@@ -52,6 +52,7 @@ def probe(ip, port, url, seconds, report=None, header_only=False):
     report: 可选回调 (ip, 瞬时MB/s, 已下载MB)，测速过程中周期性上报，用于 WebUI 实时显示。
     header_only: 只读到响应头就断开，用来拿 cf-ray 里的数据中心码，几乎不耗流量。
     """
+    ip = norm_ip(ip)
     u = urllib.parse.urlsplit(url)
     host = u.hostname or "speed.cloudflare.com"
     path = u.path or "/"
@@ -134,6 +135,16 @@ def probe(ip, port, url, seconds, report=None, header_only=False):
                 pass
 
 
+def norm_ip(text):
+    """去掉 IPv6 方括号和链路本地 scope id，返回可直接传给 socket 的地址"""
+    s = (text or "").strip()
+    if s.startswith("[") and s.endswith("]"):
+        s = s[1:-1]
+    if "%" in s:                      # fe80::1%eth0 -> fe80::1
+        s = s.split("%", 1)[0]
+    return s
+
+
 def read_csv(path):
     rows = []
     with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
@@ -142,7 +153,7 @@ def read_csv(path):
         for r in rd:
             if len(r) < 7:
                 continue
-            ip = r[0].strip()
+            ip = norm_ip(r[0])
             if not ip:
                 continue
             rows.append({

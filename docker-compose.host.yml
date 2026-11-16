@@ -1,0 +1,67 @@
+# ===================================================================
+# host 网络模式（可选）
+#
+# 和主 compose 的区别只有一个：容器直接用宿主的网络栈。
+#
+# 什么时候用：
+#   1) 要测 IPv6。bridge 网络里容器只有回环 ::1，出不了 v6，
+#      测速会全部超时；host 模式直接复用宿主已经拿到的 IPv6。
+#   2) 不想管端口映射。
+#
+# 用法：
+#   docker compose -f docker-compose.host.yml up -d
+#
+# 端口怎么改：
+#   host 模式下没有「宿主机端口:容器端口」这回事，容器监听哪个端口，
+#   宿主上就是哪个端口。所以改 WEB_PORT 这一个环境变量即可，
+#   例如 WEB_PORT=8091，然后浏览器打开 http://<设备IP>:8091。
+#
+# 注意：
+#   - 不能写 ports:（compose 不允许 network_mode: host 和 ports 并存）
+#   - 端口被占用时容器起不来，换一个 WEB_PORT 就行
+#   - 如果宿主本身没有 IPv6，改成 host 也测不出 v6
+# ===================================================================
+services:
+  cf-optimizer:
+    image: zaixiaxinren/cf-optimizer:latest
+    # 想用自己构建的镜像：改成 cf-optimizer:local 并解开下行
+    # build: .
+    container_name: cf-optimizer
+    restart: unless-stopped
+    network_mode: host
+
+    environment:
+      TZ: Asia/Shanghai
+
+      # ---- Web 控制台端口（host 模式下这就是宿主端口）----
+      WEB_PORT: "8090"
+
+      # ---- 定时 ----
+      # 平时在网页左栏「定时任务」里改，改完立即生效。
+      # 这里只是网页上还没设置过时的初始兜底值。
+      CRON: "0 */2 * * *"
+      RUN_ON_START: "0"
+
+      # ---- 兜底默认值 ----
+      # 候选地址、阈值、后缀、面板地址/密码都以网页保存的为准
+      # （存在 /data/web-config.json），这里只在网页没填时生效。
+      IP_MODE: "ipv4"       # ipv4 | ipv6 | both（网页上也能改，网页优先）
+      LATENCY_MAX: "350"
+      SPEED_MIN: "0"
+      TOP_N: "10"
+      PORT: "443"
+      SPEED_URL: "https://speed.cloudflare.com/__down?bytes=50000000"
+      DISABLE_DL: "0"
+      DL_COUNT: "10"
+      DL_PARALLEL: "4"
+      DL_TIME: "10"
+      SUFFIX_MODE: "source"
+      TAG: "auto"
+      PUSH_MODE: "panel"
+      PANEL_URL: ""
+      PANEL_PASSWORD: "${PANEL_PASSWORD:-}"
+      PANEL_FORCE_CUSTOM: "1"
+
+    volumes:
+      - ./data:/data
+      - ./out:/out

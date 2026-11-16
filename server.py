@@ -37,6 +37,7 @@ WORK_DIR = "/tmp/cfwork"
 DEFAULTS = {
     "source_urls": [],        # 多个候选列表地址，合并去重
     "source_text": "",
+    "ip_mode": "ipv4",        # ipv4 | ipv6 | both（v6 需要容器有 IPv6 出口，一般用 host 网络）
     "port": 443,
     "latency": 350,
     "speed": 0,
@@ -341,6 +342,10 @@ def apply_patch(cfg, body):
             if isinstance(v, list):
                 cfg[k] = [str(x).strip() for x in v if str(x).strip()]
             continue
+        if k == "ip_mode":
+            v = str(v or "").strip().lower()
+            cfg[k] = v if v in ("ipv4", "ipv6", "both") else "ipv4"
+            continue
         cfg[k] = v
     return cfg
 
@@ -463,9 +468,12 @@ def read_latency_rows(path, default_port=443, meta=None):
         parts = ln.split(",")
         if len(parts) < 7:
             continue
-        ip = parts[0].strip()
+        # cfst 有时把 IPv6 写成 [addr]，meta 里存的是不带括号的，先统一
+        ip = parts[0].strip().strip("[]")
         if not ip:
             continue
+        if "%" in ip:
+            ip = ip.split("%", 1)[0]
         src_port, _remark = meta.get(ip, (default_port, ""))
         colo = parts[6].strip()
         rows.append({
@@ -500,9 +508,11 @@ def parse_csv(path, params, meta=None):
         parts = ln.split(",")
         if len(parts) < 7:
             continue
-        ip = parts[0].strip()
+        ip = parts[0].strip().strip("[]")
         if not ip:
             continue
+        if "%" in ip:
+            ip = ip.split("%", 1)[0]
         loss = parts[3].strip()
         latency = parts[4].strip()
         speed = parts[5].strip()
@@ -732,7 +742,10 @@ def run_scan(params):
 
         # cfst 只认纯 IP / CIDR，域名和 IP:端口#备注 都会让它直接报错退出，
         # 所以统一先解析成 IP 列表，端口/备注单独存一份映射。
-        clean_text, meta_text, stats, warns = resolve.resolve_text(ip_text)
+        ip_mode = (params.get("ip_mode") or "ipv4").strip().lower()
+        if ip_mode not in ("ipv4", "ipv6", "both"):
+            ip_mode = "ipv4"
+        clean_text, meta_text, stats, warns = resolve.resolve_text(ip_text, ip_mode)
         if not clean_text.strip():
             raise RuntimeError(
                 "候选列表里解析不出可测的 IP（输入 %d 行：跳过 %d 行、"
@@ -747,10 +760,10 @@ def run_scan(params):
             f.write(meta_text)
         meta = resolve.load_meta(meta_path)
 
-        append_log("[web] 解析候选：输入 %d 行 -> 可测 IP %d 个"
-                   "（域名展开 %d 条、已去重、非 CF 剔除 %d 个、跳过 %d 行）"
-                   % (stats["in"], stats["out"], stats["domain"],
-                      stats["noncf"], stats["fail"]))
+        append_log("[web] 解析候选：输入 %d 行 -> 可测 IP %d 个（%s）"
+                   "（域名展开 %d 条、已去重、非 CF 剔除 %d 个、版本不符 %d 个、跳过 %d 行）"
+                   % (stats["in"], stats["out"], ip_mode, stats["domain"],
+                      stats["noncf"], stats.get("skipfam", 0), stats["fail"]))
         for w in warns[:5]:
             append_log("[web] " + w)
         if len(warns) > 5:

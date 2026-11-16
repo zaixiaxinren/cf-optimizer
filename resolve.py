@@ -43,6 +43,32 @@ except ValueError:
     MAX_PER_DOMAIN = 4
 DEFAULT_PORT = (os.environ.get("DEFAULT_PORT", "443") or "443").strip()
 
+# IP 版本：ipv4（默认）/ ipv6 / both
+# 可以用环境变量 IP_MODE 指定，也可以在命令行第 4 个参数传（命令行优先）。
+# 兼容老的 ONLY_IPV4=0 → both
+IP_MODE = (os.environ.get("IP_MODE", "") or "").strip().lower()
+if not IP_MODE:
+    IP_MODE = "ipv4" if ONLY_IPV4 else "both"
+if IP_MODE not in ("ipv4", "ipv6", "both"):
+    IP_MODE = "ipv4"
+
+
+def _fams(ip_mode):
+    """按 IP 版本返回要解析的地址族"""
+    if ip_mode == "ipv4":
+        return [socket.AF_INET]
+    if ip_mode == "ipv6":
+        return [socket.AF_INET6]
+    return [socket.AF_INET, socket.AF_INET6]
+
+
+def _want_ip(text, ip_mode):
+    """这一行/这个 IP 是否属于当前要测的版本"""
+    if ip_mode == "both":
+        return True
+    is_v6 = ":" in str(text)
+    return is_v6 if ip_mode == "ipv6" else (not is_v6)
+
 # Cloudflare 官方 anycast 段（https://www.cloudflare.com/ips-v4 + ips-v6）
 # 域名列表里常混进别的 CDN（比如 Shopify 的 23.227.38.x），
 # 这些 IP 测速可能很快，但拿来当"优选 IP"是错的，必须剔掉。
@@ -113,11 +139,15 @@ def _split_line(line):
     return s, (port or DEFAULT_PORT), remark
 
 
-def _domain_ips(host, warnings):
-    """解析域名的 A（可选 AAAA）记录，返回去重后的 IP 列表"""
-    fams = [socket.AF_INET] if ONLY_IPV4 else [socket.AF_INET, socket.AF_INET6]
+def _domain_ips(host, warnings, ip_mode="ipv4"):
+    """解析域名的 A / AAAA 记录，返回去重后的 IP 列表。
+
+    双栈模式（both）下每个地址族各取 MAX_PER_DOMAIN 个，避免 A 记录把
+    AAAA 记录挤掉（原来按总数限制，v6 永远轮不上）。
+    """
     out, seen = [], set()
-    for fam in fams:
+    for fam in _fams(ip_mode):
+        got = 0
         try:
             infos = socket.getaddrinfo(host, None, fam, socket.SOCK_STREAM)
         except socket.gaierror as e:
@@ -128,18 +158,21 @@ def _domain_ips(host, warnings):
             continue
         for info in infos:
             ip = info[4][0]
+            if "%" in ip:                     # 去掉链路本地地址的 scope id（fe80::1%eth0）
+                ip = ip.split("%", 1)[0]
             if ip in seen:
                 continue
             seen.add(ip)
             out.append(ip)
-            if len(out) >= MAX_PER_DOMAIN:
-                return out
+            got += 1
+            if got >= MAX_PER_DOMAIN:
+                break
     if not out:
         warnings.append("无可用记录 %s" % host)
     return out
 
 
-def resolve_text(raw):
+def resolve_text(raw, ip_mode="ipv4"):
     """解析文本，返回 (clean_text, meta_lines, stats, warnings)
 
     clean_text : 每行一个 IP / CIDR
@@ -150,7 +183,7 @@ def resolve_text(raw):
     meta = {}          # ip -> (port, remark)，重复 IP 只留第一次出现的
     order = []
     stats = {"in": 0, "ip": 0, "domain": 0, "cidr": 0, "fail": 0,
-             "noncf": 0, "out": 0}
+             "noncf": 0, "skipfam": 0, "out": 0}
 
     def keep(ip, port, remark):
         """登记一条，已存在则跳过（先出现的端口/备注优先）"""
@@ -171,6 +204,9 @@ def resolve_text(raw):
 
         # 1) CIDR 网段，原样交给 cfst
         if "/" in host:
+            if not _want_ip(host, ip_mode):
+                stats["skipfam"] += 1
+                continue
             try:
                 net = ipaddress.ip_network(host, strict=False)
             except ValueError:
@@ -192,6 +228,9 @@ def resolve_text(raw):
             ip = ""
 
         if ip:
+            if not _want_ip(ip, ip_mode):
+                stats["skipfam"] += 1
+                continue
             if CF_ONLY and not is_cf_ip(ip):
                 stats["noncf"] += 1
                 warnings.append("非 Cloudflare IP 已跳过 %s (%s)" % (ip, remark or "-"))
@@ -205,7 +244,7 @@ def resolve_text(raw):
             stats["fail"] += 1
             warnings.append("无法识别 %s" % host)
             continue
-        ips = _domain_ips(host, warnings)
+        ips = _domain_ips(host, warnings, ip_mode)
         if not ips:
             stats["fail"] += 1
             continue
@@ -260,16 +299,20 @@ def main(argv):
         sys.stderr.write("找不到源文件: %s\n" % src)
         return 1
 
-    clean_text, meta_lines, stats, warns = resolve_text(raw)
+    ip_mode = (argv[4].strip().lower() if len(argv) > 4 and argv[4].strip() else IP_MODE)
+    if ip_mode not in ("ipv4", "ipv6", "both"):
+        ip_mode = IP_MODE
+
+    clean_text, meta_lines, stats, warns = resolve_text(raw, ip_mode)
     with open(clean_out, "w", encoding="utf-8") as f:
         f.write(clean_text)
     with open(meta_out, "w", encoding="utf-8") as f:
         f.write(meta_lines)
 
-    print("[resolve] 输入 %d 行 -> IP %d 个（域名展开 %d 个、网段 %d 个，"
-          "跳过 %d 行、非 CF 剔除 %d 个），去重后 %d 个"
-          % (stats["in"], stats["ip"], stats["domain"], stats["cidr"],
-             stats["fail"], stats["noncf"], stats["out"]))
+    print("[resolve] 输入 %d 行 -> IP %d 个（%s；域名展开 %d 个、网段 %d 个，"
+          "跳过 %d 行、非 CF 剔除 %d 个、版本不符 %d 个），去重后 %d 个"
+          % (stats["in"], stats["ip"], ip_mode, stats["domain"], stats["cidr"],
+             stats["fail"], stats["noncf"], stats["skipfam"], stats["out"]))
     for w in warns[:8]:
         print("[resolve] %s" % w)
     if len(warns) > 8:

@@ -61,6 +61,7 @@ services:
     container_name: cf-optimizer
     restart: unless-stopped
     ports:
+      # 冒号两边写同一个端口；想换端口就两处一起改（或见下方 host 模式）
       - "8090:8090"
     volumes:
       - ./data:/data
@@ -111,9 +112,52 @@ docker compose build --build-arg HTTPS_PROXY=http://<宿主机IP>:7890
 docker compose build --build-arg CFST_VERSION=2.3.5
 ```
 
+### 方式 C：host 网络模式（要测 IPv6 时用这个）
+
+默认的 bridge 网络里，容器只有回环地址 `::1`，**出不了 IPv6**，选「仅 IPv6」会全部超时。
+想让容器复用宿主机的 IPv6，就得用 host 网络：
+
+```bash
+# 仓库里已附带 docker-compose.host.yml
+docker compose -f docker-compose.host.yml up -d
+```
+
+如果要自己写，关键就两行 —— 加 `network_mode: host`、**删掉 `ports:`**（compose 不允许两者并存）：
+
+```yaml
+services:
+  cf-optimizer:
+    image: zaixiaxinren/cf-optimizer:latest
+    container_name: cf-optimizer
+    restart: unless-stopped
+    network_mode: host          # 关键
+    # ports:                    # 必须删掉或注释
+    #   - "8090:8090"
+    environment:
+      TZ: Asia/Shanghai
+      WEB_PORT: "8090"          # host 模式下这就是宿主机端口
+    volumes:
+      - ./data:/data
+      - ./out:/out
+```
+
+**host 模式下端口照样能改**：改 `WEB_PORT` 这一个环境变量就行，容器监听哪个端口，宿主上就是哪个端口，不需要再维护「宿主:容器」的映射关系。
+
+```bash
+# 想跑在 8091
+docker compose -f docker-compose.host.yml run --rm -e WEB_PORT=8091 ...   # 临时
+# 或直接改 yml 里的 WEB_PORT: "8091"，然后
+docker compose -f docker-compose.host.yml up -d
+```
+
+注意 host 模式的两点副作用：
+
+- 端口被宿主其他程序占用时容器直接起不来，换一个 `WEB_PORT` 即可
+- 宿主本身没有 IPv6 的话，切了 host 也测不出 v6（先 `ip -6 route` 看有没有默认路由）
+
 ### 打开网页
 
-浏览器访问 `http://<宿主机IP>:8090`：
+浏览器访问 `http://<宿主机IP>:8090`（改过 `WEB_PORT` 就用对应端口）：
 
 1. 首次打开会弹引导，要求填 **CFNext 面板入口地址**（含入口路径，例如 `https://xxx.pages.dev/vvbo`）和管理密码
 2. 填好后左栏填候选列表地址，点 **开始测速**
@@ -134,19 +178,20 @@ docker compose build --build-arg CFST_VERSION=2.3.5
 
 ```
 .
-├─ docker-compose.yml     # 编排（端口 8090 + 两个挂载）
-├─ Dockerfile             # alpine + bash/curl/jq/python3 + cfst（多架构）
-├─ entrypoint.sh          # 容器入口：写 crontab、起 Web 服务、看守 crond
-├─ run.sh                 # 定时任务的一轮完整流程（命令行入口）
-├─ server.py              # Web 后端（Python3 标准库）
-├─ static/index.html      # WebUI 单页（无框架、无 CDN）
-├─ resolve.py             # 候选解析：域名→IP、拆分 IP:端口#备注、剔除非 CF 段
-├─ dltest.py              # 并行下载测速（线程池）
-├─ format_result.py       # cfst CSV + 元数据 → IP:端口#后缀
-├─ push_panel.sh          # 登录 CFNext → 写 preferredIPs → 回读校验
-├─ publish.sh             # 本地构建并推送到 Docker Hub
-├─ .github/workflows/     # 打 tag 自动多架构构建推送
-└─ worker/                # 可选：方案 B 的 Cloudflare Worker（PUSH_MODE=webhook 时才用）
+├─ docker-compose.yml      # 编排（bridge 网络 + 端口映射，默认）
+├─ docker-compose.host.yml # 编排（host 网络：需要 IPv6 时用，端口改 WEB_PORT）
+├─ Dockerfile              # alpine + bash/curl/jq/python3 + cfst（多架构）
+├─ entrypoint.sh           # 容器入口：写 crontab、起 Web 服务、看守 crond
+├─ run.sh                  # 定时任务的一轮完整流程（命令行入口）
+├─ server.py               # Web 后端（Python3 标准库）
+├─ static/index.html       # WebUI 单页（无框架、无 CDN）
+├─ resolve.py              # 候选解析：域名→IP、拆分 IP:端口#备注、剔除非 CF 段
+├─ dltest.py               # 并行下载测速（线程池）
+├─ format_result.py        # cfst CSV + 元数据 → IP:端口#后缀
+├─ push_panel.sh           # 登录 CFNext → 写 preferredIPs → 回读校验
+├─ publish.sh              # 本地构建并推送到 Docker Hub
+├─ .github/workflows/      # 打 tag 自动多架构构建推送
+└─ worker/                 # 可选：方案 B 的 Cloudflare Worker（PUSH_MODE=webhook 时才用）
 ```
 
 运行时产物：
@@ -188,12 +233,36 @@ www.shopify.com:443#企业域名   # 域名（自动 DNS 解析成 IP）
 | 参数      | 默认                                           | 说明                               |
 | ------- | -------------------------------------------- | -------------------------------- |
 | 端口      | 443                                          | 测速与输出使用的端口                       |
+| IP 版本   | 仅 IPv4                                       | 仅 IPv4 / 仅 IPv6 / 双栈。**IPv6 需要 host 网络**，见「方式 C」 |
 | 延迟上限    | 350 ms                                       | 超过就丢弃。**先跑一轮看实际延迟再定**，设太低会 0 条结果 |
 | 速度下限    | 0 MB/s                                       | 0 = 不按速度过滤。想筛就设 1~2，别超过实际带宽      |
 | 保留条数    | 10                                           | 最终最多留下几个                         |
 | 并发线程    | 100                                          | cfst 延迟测速线程数，弱设备别开太高             |
 | Ping 次数 | 4                                            | 单个 IP 延迟测速次数                     |
 | 测速地址    | `speed.cloudflare.com/__down?bytes=50000000` | 下载测速用的 URL                       |
+
+### IPv6 说明
+
+三种模式：
+
+| 模式 | 行为 |
+| --- | --- |
+| 仅 IPv4（默认） | 域名只取 A 记录，候选列表里的 v6 行会被跳过 |
+| 仅 IPv6 | 域名只取 AAAA 记录，候选列表里的 v4 行会被跳过 |
+| 双栈 | A + AAAA 都取，每个域名**每个地址族**各最多 4 个 IP，v4/v6 一起测速 |
+
+输出格式会自动加方括号，符合 URI 规范：
+
+```
+[2606:4700::6811:190e]:443#LAX
+```
+
+**前提是容器能出 IPv6。** 默认 bridge 网络里容器只有 `::1`，选 v6 会全部超时 —— 换成 `docker-compose.host.yml`（host 网络）即可，容器会直接复用宿主机的 IPv6。宿主没有 IPv6 的话，切了也没用，先确认：
+
+```bash
+ip -6 route show default      # 有 default via ... 才能出 v6
+curl -6 -s https://ipv6.baidu.com
+```
 
 ### 并行下载测速
 

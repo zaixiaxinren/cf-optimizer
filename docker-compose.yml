@@ -13,7 +13,9 @@ services:
       TZ: Asia/Shanghai
 
       # ---- Web 控制台 ----
-      # 浏览器打开 http://<NAS-IP>:8090 手动触发测速、看结果、一键推送
+      # 浏览器打开 http://<设备IP>:8090 手动触发测速、看结果、一键推送。
+      # 改端口只改这一处：下面的 ports 用的也是 ${WEB_PORT}，两边自动保持一致。
+      # host 网络模式下 ports 不生效，容器直接占用宿主的这个端口，改法完全一样。
       WEB_PORT: "8090"
 
       # ---- 定时 ----
@@ -35,18 +37,20 @@ services:
       # ===================================================================
 
       # ---- 筛选条件：什么算"符合要求" ----
-      # 实测你这台 NAS 到 Cloudflare LAX 的 TCP 延迟是 204~209ms，
-      # 所以阈值不能设 200（会把结果全卡掉，实测一轮 0 结果）。设 350 留余量。
+      # 延迟阈值按你到 Cloudflare 的实际线路来，跨境通常 150~250ms。
+      # 建议先设 500 跑一轮看真实延迟分布，再往下收紧。
       LATENCY_MAX: "350"   # 平均延迟上限 ms，超过丢弃
-      # SPEED_MIN: 0 表示不按速度过滤（仍会测速并按速度排序）。
-      # 注意：实测你这条线到 Cloudflare 只有约 3.4MB/s，设成 5 会一条结果都出不来。
-      # 想筛就设 1 或 2，别超过实际带宽。
+      # SPEED_MIN: 0 表示不按速度过滤（仍然会测速并按速度排序）。
+      # 跨境线路到 Cloudflare 往往只有零点几到几 MB/s，设成 5 这种值大概率 0 条结果。
+      # 先设 0，看页面上的实际速度再定。
       SPEED_MIN: "0"
       TOP_N: "10"          # 最终最多保留几个
       PORT: "443"          # 测速与输出使用的端口
 
       # ---- 下载测速地址 ----
-      # 官方默认的 cf.xiu2.xyz 在当前线路返回 403，这里换成 Cloudflare 官方测速端点。
+      # 默认用 Cloudflare 官方测速端点。如果它在你这里被阻断（表现为速度恒为 0），
+      # 换成一个 Cloudflare 承载的大文件地址即可，例如：
+      #   https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs/editor/editor.main.js
       # 想跳过下载测速只比延迟，把 DISABLE_DL 设为 "1"（更快，但没有速度数据）。
       SPEED_URL: "https://speed.cloudflare.com/__down?bytes=50000000"
       DISABLE_DL: "0"
@@ -95,11 +99,25 @@ services:
       WEBHOOK_URL: ""
       WEBHOOK_TOKEN: ""
 
+    # 左右都取 WEB_PORT，改环境变量即可换端口（不用再改这里）
     ports:
-      - "8090:8090"
+      - "${WEB_PORT:-8090}:${WEB_PORT:-8090}"
 
     volumes:
       # 相对路径：数据落在 compose 文件同级的 data/ 和 out/ 里
       # 想放别处就换成绝对路径，例如 /vol1/1000/docker/cf-optimizer/data:/data
       - ./data:/data
       - ./out:/out
+
+# ===================================================================
+# 什么时候需要切到 host 网络模式？
+#   1) 想测 IPv6：bridge 网络默认只有回环 ::1，容器出不了 v6，
+#      测速会全部超时。host 模式容器直接复用宿主的 IPv6。
+#   2) 不想折腾端口映射。
+# 用法：换成 docker-compose.host.yml（已附带），或手动把下面的
+#   network_mode: host 加进来，并删掉（注释掉）上面的 ports —— compose 不允许两者并存。
+# 端口照样能改：改 WEB_PORT 环境变量就行。
+#
+#   network_mode: host
+#
+# ===================================================================

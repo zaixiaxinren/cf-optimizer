@@ -51,9 +51,11 @@ def main(argv):
         parts = ln.split(",")
         if len(parts) < 7:
             continue
-        ip = parts[0].strip()
+        ip = parts[0].strip().strip("[]")
         if not ip:
             continue
+        if "%" in ip:
+            ip = ip.split("%", 1)[0]
         colo = parts[6].strip()
         remark, port = "", default_port
         if ip in meta:

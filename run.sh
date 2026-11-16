@@ -3,6 +3,7 @@
 set -u
 
 IP_FILE="${IP_FILE:-/data/ip.txt}"
+IP_MODE="${IP_MODE:-ipv4}"   # ipv4 / ipv6 / both（v6 需要容器有 IPv6 出口）
 OUT_DIR="${OUT_DIR:-/out}"
 LATENCY_MAX="${LATENCY_MAX:-200}"
 SPEED_MIN="${SPEED_MIN:-5}"
@@ -47,6 +48,7 @@ def s(v):
     return str(v).strip()
 
 pairs = [
+    ("IP_MODE", s(cfg.get("ip_mode"))),
     ("PANEL_URL", s(cfg.get("panel_url"))),
     ("PANEL_PASSWORD", s(cfg.get("panel_password"))),
     ("SUFFIX_MODE", s(cfg.get("suffix_mode"))),
@@ -138,7 +140,7 @@ rm -f result.csv
 #   顺手剔掉不属于 Cloudflare 段的外站 IP。
 CLEAN=/tmp/cfst/ip.clean
 META=/tmp/cfst/meta.tsv
-if ! python3 /resolve.py "$IP_FILE" "$CLEAN" "$META"; then
+if ! python3 /resolve.py "$IP_FILE" "$CLEAN" "$META" "$IP_MODE"; then
   log "错误：候选列表解析后没有可测的 IP"
   exit 1
 fi
@@ -152,7 +154,7 @@ if [ -n "$SPEED_URL" ]; then
   set -- "$@" -url "$SPEED_URL"
 fi
 
-log "开始延迟测速：延迟<=${LATENCY_MAX}ms 端口${PORT}"
+log "开始延迟测速：延迟<=${LATENCY_MAX}ms 端口${PORT} IP版本=${IP_MODE}"
 cfst "$@" > /tmp/cfst/run.log 2>&1
 CFST_RC=$?
 tail -45 /tmp/cfst/run.log

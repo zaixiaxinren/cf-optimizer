@@ -267,7 +267,20 @@
           <input type="number" id="latency" value="350">
         </div>
       </div>
-      <div class="hint" style="margin:-6px 0 12px">实测这台 NAS 到 LAX 约 204~209ms，阈值设 200 会一条结果都没有</div>
+      <div class="hint" style="margin:-6px 0 12px">按你到 Cloudflare 的实际线路来，跨境一般 150~250ms。先设 500 看真实值，再收紧</div>
+
+      <div class="field">
+        <label>IP 版本</label>
+        <select id="ip_mode">
+          <option value="ipv4">仅 IPv4（默认）</option>
+          <option value="ipv6">仅 IPv6</option>
+          <option value="both">双栈：IPv4 + IPv6 一起测</option>
+        </select>
+        <div class="hint">
+          选 IPv6 时容器必须能出 v6。bridge 网络默认只有回环 <code>::1</code>，v6 会全部超时，
+          需要用 host 网络（见 docker-compose.yml 末尾说明）。IPv4 不受影响。
+        </div>
+      </div>
 
       <div class="row">
         <div class="field">
@@ -475,7 +488,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-var FIELDS = ['source_text','port','latency','speed','topn','threads','ping_times',
+var FIELDS = ['source_text','ip_mode','port','latency','speed','topn','threads','ping_times',
               'dn','dt','dl_parallel',
               'disable_dl','speed_url','suffix_mode','suffix_custom','tag','panel_url'];
 var CFG = {};
