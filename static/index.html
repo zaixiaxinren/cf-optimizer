@@ -7,20 +7,25 @@
 <style>
   * { box-sizing: border-box; }
   :root {
-    --bg: #0d1017;
-    --card: #161a22;
-    --card2: #1c212b;
-    --brd: #262c38;
-    --txt: #e6e9ef;
-    --dim: #8b95a7;
-    --acc: #3b82f6;
-    --ok: #22c55e;
-    --warn: #f59e0b;
-    --err: #ef4444;
+    --bg: #f1f3f6;
+    --card: #ffffff;
+    --card2: #f7f8fa;
+    --brd: #e2e5ea;
+    --brd2: #eef0f3;
+    --txt: #1e2330;
+    --dim: #6d7686;
+    --acc: #2563eb;
+    --ok: #15803d;
+    --warn: #b45309;
+    --err: #b91c1c;
+    /* 正在下载测速的那一行：暖橙色，刻意避开蓝/灰主色，一眼能挑出来 */
+    --hot: #ea580c;
+    --hot-bg: #fff3e4;
+    --hot-brd: #fcd0a4;
   }
   body {
     margin: 0; padding: 20px;
-    background: radial-gradient(1200px 600px at 20% -10%, #16233a 0%, var(--bg) 55%);
+    background: linear-gradient(180deg, #f7f9fb 0%, var(--bg) 320px);
     color: var(--txt);
     font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     min-height: 100vh;
@@ -30,17 +35,18 @@
   h1 { font-size: 19px; margin: 0; font-weight: 600; letter-spacing: .2px; }
   .badge {
     font-size: 12px; padding: 3px 10px; border-radius: 999px;
-    background: #1f2937; color: var(--dim); border: 1px solid var(--brd);
+    background: #eef0f4; color: var(--dim); border: 1px solid var(--brd);
   }
-  .badge.run { background: rgba(59,130,246,.15); color: #93c5fd; border-color: #1e40af; }
-  .badge.ok  { background: rgba(34,197,94,.15); color: #86efac; border-color: #166534; }
-  .badge.err { background: rgba(239,68,68,.15); color: #fca5a5; border-color: #991b1b; }
+  .badge.run { background: #e8efff; color: #1d4ed8; border-color: #c7d9ff; }
+  .badge.ok  { background: #e7f6ec; color: #15803d; border-color: #bfe6cb; }
+  .badge.err { background: #fdeceb; color: #b91c1c; border-color: #f6c9c6; }
   .grid { display: grid; grid-template-columns: 420px 1fr; gap: 16px; align-items: start; }
   @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
 
   .card {
     background: var(--card); border: 1px solid var(--brd);
     border-radius: 12px; padding: 16px;
+    box-shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.03);
   }
   .card h2 {
     font-size: 13px; font-weight: 600; margin: 0 0 14px;
@@ -50,16 +56,21 @@
   .field label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 5px; }
   input[type=text], input[type=password], input[type=number], select, textarea {
     width: 100%; padding: 8px 10px; border-radius: 8px;
-    background: var(--card2); border: 1px solid var(--brd);
+    background: #fff; border: 1px solid var(--brd);
     color: var(--txt); font-size: 13px; font-family: inherit; outline: none;
+    transition: border-color .15s, box-shadow .15s;
   }
-  input:focus, select:focus, textarea:focus { border-color: var(--acc); }
+  input:hover, select:hover, textarea:hover { border-color: #cfd5de; }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--acc); box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+  }
+  input::placeholder, textarea::placeholder { color: #a8b0bd; }
   textarea { resize: vertical; min-height: 70px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .hint { font-size: 11px; color: #6b7688; margin-top: 4px; line-height: 1.5; }
+  .hint { font-size: 11px; color: #7d8695; margin-top: 4px; line-height: 1.5; }
   .hint code {
-    background: #0a0d12; padding: 1px 4px; border-radius: 3px;
-    font-size: 10.5px; color: #9fb0c7;
+    background: #f0f2f5; padding: 1px 4px; border-radius: 3px;
+    font-size: 10.5px; color: #4b5563; border: 1px solid #e6e9ee;
   }
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -67,12 +78,12 @@
     font-size: 13px; font-weight: 500; cursor: pointer; transition: .15s;
     font-family: inherit;
   }
-  .btn.primary { background: var(--acc); color: #fff; }
-  .btn.primary:hover { background: #2f6fd8; }
-  .btn.ghost { background: transparent; color: var(--txt); border-color: var(--brd); }
-  .btn.ghost:hover { background: var(--card2); }
+  .btn.primary { background: var(--acc); color: #fff; box-shadow: 0 1px 2px rgba(37,99,235,.25); }
+  .btn.primary:hover { background: #1d4ed8; }
+  .btn.ghost { background: #fff; color: var(--txt); border-color: var(--brd); }
+  .btn.ghost:hover { background: var(--card2); border-color: #cfd5de; }
   .btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 7px; }
-  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
   .btn-row { display: flex; gap: 10px; margin-top: 4px; }
 
   /* ---- 候选地址多行 ---- */
@@ -80,14 +91,14 @@
   .urlrow input { flex: 1; min-width: 0; }
   .urlrow .idx {
     width: 18px; flex: none; text-align: center;
-    font-size: 11px; color: #55617a; font-family: ui-monospace, monospace;
+    font-size: 11px; color: #98a1ae; font-family: ui-monospace, monospace;
   }
   .url-del {
     flex: none; width: 30px; height: 32px; border-radius: 7px; cursor: pointer;
-    background: transparent; border: 1px solid var(--brd); color: #8b95a7;
+    background: #fff; border: 1px solid var(--brd); color: #98a1ae;
     font-size: 13px; line-height: 1; transition: .15s;
   }
-  .url-del:hover { border-color: #7f1d1d; color: #fca5a5; background: rgba(239,68,68,.08); }
+  .url-del:hover { border-color: #f3b4b1; color: #dc2626; background: #fef4f3; }
 
   /* ---- 进度条 ---- */
   .prog-head {
@@ -97,96 +108,119 @@
   .prog-head .phase { font-weight: 600; color: var(--txt); }
   .prog-head .num { color: var(--dim); font-family: ui-monospace, monospace; font-size: 12px; }
   .prog-track {
-    height: 10px; background: #0a0d12; border: 1px solid var(--brd);
+    height: 10px; background: #eceff3; border: 1px solid var(--brd2);
     border-radius: 99px; overflow: hidden;
   }
   .prog-fill {
     height: 100%; width: 0; border-radius: 99px;
-    background: linear-gradient(90deg, #2563eb, #60a5fa);
+    background: linear-gradient(90deg, #2563eb, #7aa7ff);
     transition: width .35s ease;
   }
-  .prog-fill.dl { background: linear-gradient(90deg, #059669, #34d399); }
-  .prog-fill.ok { background: linear-gradient(90deg, #16a34a, #4ade80); }
+  .prog-fill.dl { background: linear-gradient(90deg, #ea580c, #fb923c); }
+  .prog-fill.ok { background: linear-gradient(90deg, #15803d, #4ade80); }
   .prog-fill.err { background: linear-gradient(90deg, #b91c1c, #f87171); }
   .prog-sub {
     display: flex; gap: 16px; flex-wrap: wrap;
     margin-top: 8px; font-size: 11.5px; color: var(--dim);
   }
-  .prog-sub b { color: #cbd5e1; font-weight: 600; font-family: ui-monospace, monospace; }
-  .prog-sub .rest b { color: #fbbf24; }
-
-  /* ---- 下载测速：延迟通过的 IP 清单 + 实时速度 ---- */
-  .dl-now {
-    margin-top: 10px; font-size: 12px; line-height: 1.6;
-    font-family: ui-monospace, Menlo, Consolas, monospace; color: #86efac;
-  }
-  .dl-now .ip { color: #e2e8f0; font-weight: 600; }
-  .dl-wrap {
-    margin-top: 10px; max-height: 210px; overflow-y: auto;
-    border-top: 1px solid #1f242e;
-  }
-  .dl-wrap table { font-size: 12px; }
-  .dl-wrap td { padding: 5px 8px; }
-  .dl-wrap td.spd { font-family: ui-monospace, monospace; color: var(--dim); }
-  .dl-wrap tr.run td { background: rgba(59,130,246,.10); }
-  .dl-wrap tr.run td.spd { color: #60a5fa; font-weight: 600; }
-  .dl-wrap tr.done td { color: #7c8899; }
-  .dl-wrap tr.done td.spd { color: #86efac; }
+  .prog-sub b { color: #313846; font-weight: 600; font-family: ui-monospace, monospace; }
+  .prog-sub .rest b { color: var(--hot); }
   .hidden { display: none !important; }
 
-  pre.log {
-    background: #0a0d12; border: 1px solid var(--brd); border-radius: 8px;
-    padding: 10px 12px; margin: 0; max-height: 240px; overflow: auto;
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: 11.5px; line-height: 1.55; color: #9fb0c7; white-space: pre-wrap; word-break: break-all;
+  /* ---- 结果表 ---- */
+  .res-note {
+    font-size: 12px; color: var(--dim); margin-bottom: 10px;
+    padding: 7px 10px; background: #fafbfc; border: 1px solid var(--brd2);
+    border-radius: 7px; line-height: 1.6;
   }
+  .res-note b { color: #313846; font-family: ui-monospace, monospace; }
+  .res-note b.hot { color: var(--hot); }
+  .res-scroll { max-height: 520px; overflow-y: auto; border-radius: 8px; }
+  .res-scroll::-webkit-scrollbar { width: 8px; }
+  .res-scroll::-webkit-scrollbar-thumb { background: #d8dce3; border-radius: 4px; }
+  .res-scroll::-webkit-scrollbar-track { background: transparent; }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  th, td { padding: 7px 8px; text-align: left; border-bottom: 1px solid #1f242e; }
-  th { color: var(--dim); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; }
+  th, td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--brd2); }
+  th {
+    color: var(--dim); font-weight: 500; font-size: 11.5px;
+    text-transform: uppercase; letter-spacing: .5px;
+    position: sticky; top: 0; background: #fff; z-index: 1;
+  }
   td.mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  tbody tr:hover td { background: #fafbfc; }
+
+  /* 正在下载测速的那一行：橙色高亮，和蓝灰 UI 明显不同色系 */
+  tbody tr.testing td {
+    background: var(--hot-bg);
+    color: #9a3412;
+    border-bottom: 1px solid var(--hot-brd);
+    font-weight: 500;
+  }
+  tbody tr.testing td:first-child { box-shadow: inset 5px 0 0 var(--hot); }
+  tbody tr.testing td.spd { color: var(--hot); font-weight: 700; }
+  tbody tr.testing:hover td { background: #ffe9d1; }
+  tbody tr.waiting td { color: #8b93a1; }
+  tbody tr.waiting td.spd { color: #b9bfc9; }
+  tbody tr.done td.spd { color: #15803d; font-weight: 600; }
+  td.spd { font-family: ui-monospace, Menlo, Consolas, monospace; }
+
   .colo {
     display: inline-block; padding: 1px 7px; border-radius: 5px;
-    background: rgba(59,130,246,.14); color: #93c5fd; font-size: 11.5px;
-    font-family: ui-monospace, monospace;
+    background: #eef3fe; color: #1d4ed8; font-size: 11.5px;
+    font-family: ui-monospace, monospace; border: 1px solid #dde7fb;
+  }
+  .st {
+    display: inline-block; padding: 1px 7px; border-radius: 5px;
+    font-size: 11px; background: #f2f4f7; color: #7d8695; border: 1px solid var(--brd2);
+  }
+  .st.hot { background: var(--hot-bg); color: var(--hot); border-color: var(--hot-brd); }
+  .st.ok { background: #eaf7ef; color: #15803d; border-color: #c9e9d5; }
+
+  pre.log {
+    background: #fafbfc; border: 1px solid var(--brd); border-radius: 8px;
+    padding: 10px 12px; margin: 0; max-height: 240px; overflow: auto;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px; line-height: 1.55; color: #5a6472; white-space: pre-wrap; word-break: break-all;
   }
   .out {
-    background: #0a0d12; border: 1px solid var(--brd); border-radius: 8px;
+    background: #fafbfc; border: 1px solid var(--brd); border-radius: 8px;
     padding: 10px 12px; margin-top: 12px; font-family: ui-monospace, monospace;
-    font-size: 12px; white-space: pre-wrap; color: #86efac; max-height: 200px; overflow: auto;
+    font-size: 12px; white-space: pre-wrap; color: #15803d; max-height: 200px; overflow: auto;
   }
   .empty { color: var(--dim); text-align: center; padding: 28px 0; font-size: 13px; }
   .toast {
     position: fixed; right: 20px; bottom: 20px; padding: 11px 16px;
-    border-radius: 9px; background: var(--card2); border: 1px solid var(--brd);
+    border-radius: 9px; background: #fff; border: 1px solid var(--brd);
+    box-shadow: 0 8px 24px rgba(16,24,40,.12);
     font-size: 13px; opacity: 0; transform: translateY(8px);
     transition: .2s; pointer-events: none; max-width: 460px; z-index: 99;
   }
   .toast.show { opacity: 1; transform: none; }
-  .toast.ok { border-color: #166534; color: #86efac; }
-  .toast.err { border-color: #991b1b; color: #fca5a5; }
+  .toast.ok { border-color: #bfe6cb; color: #15803d; background: #f4fcf7; }
+  .toast.err { border-color: #f6c9c6; color: #b91c1c; background: #fef7f6; }
 
   /* ---- 首次使用引导 ---- */
   .modal {
     position: fixed; inset: 0; z-index: 60;
-    background: rgba(5,8,14,.8); backdrop-filter: blur(3px);
+    background: rgba(23,29,41,.32); backdrop-filter: blur(3px);
     display: flex; align-items: center; justify-content: center; padding: 20px;
   }
   .modal.hide { display: none; }
   .modal-box {
-    width: min(480px, 94vw); background: var(--card);
+    width: min(480px, 94vw); background: #fff;
     border: 1px solid var(--brd); border-radius: 14px; padding: 24px;
-    box-shadow: 0 20px 60px rgba(0,0,0,.55);
+    box-shadow: 0 20px 60px rgba(16,24,40,.18);
   }
   .modal-box h3 { margin: 0 0 6px; font-size: 16px; }
   .modal-box p { margin: 0 0 16px; font-size: 12.5px; color: var(--dim); line-height: 1.65; }
   .modal-box .skip {
     display: block; text-align: center; margin-top: 12px;
-    font-size: 12px; color: #6b7688; cursor: pointer; text-decoration: underline;
+    font-size: 12px; color: #8b93a1; cursor: pointer; text-decoration: underline;
   }
   .modal-box .skip:hover { color: var(--dim); }
   .tagstate {
     display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px;
-    background: rgba(34,197,94,.14); color: #86efac; margin-left: 6px;
+    background: #eaf7ef; color: #15803d; margin-left: 6px; border: 1px solid #c9e9d5;
   }
 </style>
 </head>
@@ -397,29 +431,21 @@
           <span id="progAlive"></span>
         </div>
 
-        <!-- 延迟测速通过后在这里列出 IP，并逐个显示实时下载速度 -->
-        <div class="dl-now hidden" id="dlNow"></div>
-        <div class="dl-wrap hidden" id="dlWrap">
-          <table>
-            <thead><tr>
-              <th>IP</th><th>延迟</th><th>丢包</th><th>下载速度</th><th>机房</th><th>状态</th>
-            </tr></thead>
-            <tbody id="dlBody"></tbody>
-          </table>
-        </div>
       </div>
 
+      <!-- 延迟测速一通过就把 IP 列到这里，下载测速时逐行刷新实时速度 -->
       <div class="card" style="margin-bottom:16px">
-        <h2>运行日志</h2>
-        <pre class="log" id="log">等待开始…</pre>
-      </div>
-
-      <div class="card">
         <h2>测速结果 <span id="cnt" style="color:var(--dim);font-weight:400;text-transform:none"></span></h2>
+        <div class="res-note hidden" id="resNote"></div>
         <div id="resultBox">
           <div class="empty">还没有结果</div>
         </div>
         <div class="out" id="pushOut" style="display:none"></div>
+      </div>
+
+      <div class="card">
+        <h2>运行日志</h2>
+        <pre class="log" id="log">等待开始…</pre>
       </div>
     </div>
   </div>
@@ -823,70 +849,80 @@ function renderProgress(p, status){
   f.style.width = width + '%';
 }
 
-function renderResult(rows){
-  var box = $('resultBox');
-  $('cnt').textContent = rows.length ? '（' + rows.length + ' 条）' : '';
-  $('btnPush').disabled = rows.length === 0;
+/* 结果表一个表承担三个阶段：
+   1) 延迟测速中        → 提示等待
+   2) 下载测速中        → 列出所有通过延迟测速的 IP，正在测的几行橙色高亮 + 实时速度
+   3) 测完              → 只留达标结果，按下载速度降序（后端已排好序并剔除 0 速度） */
+function renderTable(d){
+  var box = $('resultBox'), note = $('resNote'), cnt = $('cnt');
+  var running = d.status === 'running';
+  var rows = running ? (d.dl_rows || []) : (d.result || []);
+
   if (!rows.length){
-    box.innerHTML = '<div class="empty">还没有结果</div>';
+    cnt.textContent = '';
+    note.className = 'res-note hidden';
+    note.innerHTML = '';
+    $('btnPush').disabled = true;
+    box.innerHTML = '<div class="empty">'
+      + (running ? '延迟测速中… 通过的 IP 会立刻列到这里' : '还没有结果')
+      + '</div>';
     return;
   }
-  var h = '<table><thead><tr><th>输出行</th><th>延迟</th><th>速度</th><th>丢包</th><th>数据中心</th></tr></thead><tbody>';
+
+  var bodyRows = '';
+  if (running){
+    var testing = 0, done = 0;
+    rows.forEach(function(r){
+      var st = r.status || 'wait';
+      var cls = st === 'running' ? 'testing' : (st === 'done' ? 'done' : 'waiting');
+      if (st === 'running') testing++;
+      if (st === 'done') done++;
+      var label = st === 'running' ? '测速中' : (st === 'done' ? '完成' : '等待');
+      var stCls = st === 'running' ? 'hot' : (st === 'done' ? 'ok' : '');
+      var spd = r.speed ? (r.speed + ' MB/s') : '—';
+      var host = esc(r.ip) + (r.port && String(r.port) !== '443' ? ':' + esc(r.port) : '');
+      bodyRows += '<tr class="' + cls + '">'
+        + '<td class="mono">' + host + '</td>'
+        + '<td class="mono">' + esc(r.latency) + ' ms</td>'
+        + '<td class="mono">' + esc(r.loss) + '</td>'
+        + '<td class="spd">' + esc(spd) + '</td>'
+        + '<td>' + (r.colo && r.colo !== 'N/A' ? '<span class="colo">' + esc(r.colo) + '</span>' : '—') + '</td>'
+        + '<td><span class="st ' + stCls + '">' + label + '</span></td></tr>';
+    });
+    cnt.textContent = '（延迟通过 ' + rows.length + ' 个）';
+    note.className = 'res-note';
+    note.innerHTML = '通过延迟测速 <b>' + rows.length + '</b> 个 IP'
+      + ' · 正在测下载 <b class="hot">' + testing + '</b> 个'
+      + ' · 已完成 <b>' + done + '</b> 个'
+      + (testing ? ' · <span style="color:var(--hot)">橙色行 = 当前正在测的 IP</span>' : '');
+    $('btnPush').disabled = true;
+    box.innerHTML = '<div class="res-scroll"><table><thead><tr>'
+      + '<th>IP</th><th>延迟</th><th>丢包</th><th>下载速度</th><th>机房</th><th>状态</th>'
+      + '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>';
+    return;
+  }
+
   rows.forEach(function(r){
-    h += '<tr><td class="mono">' + esc(r.line) + '</td>'
-       + '<td class="mono">' + esc(r.latency) + ' ms</td>'
-       + '<td class="mono">' + esc(r.speed) + '</td>'
-       + '<td class="mono">' + esc(r.loss) + '</td>'
-       + '<td><span class="colo">' + esc(r.colo) + '</span></td></tr>';
+    bodyRows += '<tr>'
+      + '<td class="mono">' + esc(r.line) + '</td>'
+      + '<td class="mono">' + esc(r.latency) + ' ms</td>'
+      + '<td class="spd">' + esc(r.speed) + ' MB/s</td>'
+      + '<td class="mono">' + esc(r.loss) + '</td>'
+      + '<td>' + (r.colo && r.colo !== 'N/A' ? '<span class="colo">' + esc(r.colo) + '</span>' : '—') + '</td></tr>';
   });
-  box.innerHTML = h + '</tbody></table>';
+  cnt.textContent = '（' + rows.length + ' 条 · 按下载速度降序）';
+  note.className = 'res-note hidden';
+  note.innerHTML = '';
+  $('btnPush').disabled = false;
+  box.innerHTML = '<div class="res-scroll"><table><thead><tr>'
+    + '<th>输出行</th><th>延迟</th><th>下载速度 ↓</th><th>丢包</th><th>数据中心</th>'
+    + '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>';
 }
 
 function esc(s){
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
     return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
   });
-}
-
-/* 下载测速清单：延迟测速一通过就全部列出来，然后逐个刷新实时速度 */
-function renderDlList(rows, p){
-  var nowEl = $('dlNow'), wrap = $('dlWrap'), body = $('dlBody');
-  if (!nowEl || !wrap || !body) return;
-
-  if (!rows || !rows.length){
-    nowEl.className = 'dl-now hidden';
-    nowEl.innerHTML = '';
-    wrap.className = 'dl-wrap hidden';
-    body.innerHTML = '';
-    return;
-  }
-
-  var curIp = (p && p.current_ip) || '';
-  if (curIp){
-    nowEl.className = 'dl-now';
-    nowEl.innerHTML = '正在测 <span class="ip">' + esc(curIp) + '</span> · '
-      + '<b>' + esc((p && p.current_speed) || '0') + ' MB/s</b>'
-      + (p && p.current_mb ? '（已下载 ' + esc(p.current_mb) + ' MB）' : '');
-  } else {
-    nowEl.className = 'dl-now hidden';
-    nowEl.innerHTML = '';
-  }
-
-  wrap.className = 'dl-wrap';
-  var h = '';
-  rows.forEach(function(r){
-    var st = r.status || 'wait';
-    var label = st === 'done' ? '完成' : (st === 'running' ? '测速中' : '等待');
-    var spd = r.speed ? (r.speed + ' MB/s') : '—';
-    h += '<tr class="' + st + '">'
-       + '<td class="mono">' + esc(r.ip) + '</td>'
-       + '<td class="mono">' + esc(r.latency) + ' ms</td>'
-       + '<td class="mono">' + esc(r.loss) + '</td>'
-       + '<td class="spd">' + esc(spd) + '</td>'
-       + '<td>' + (r.colo ? '<span class="colo">' + esc(r.colo) + '</span>' : '—') + '</td>'
-       + '<td>' + label + '</td></tr>';
-  });
-  body.innerHTML = h;
 }
 
 function poll(){
@@ -896,9 +932,8 @@ function poll(){
     var lg = $('log');
     lg.textContent = d.log || '等待开始…';
     lg.scrollTop = lg.scrollHeight;
-    renderResult(d.result || []);
+    renderTable(d);
     renderProgress(d.progress, d.status);
-    renderDlList(d.dl_rows, d.progress);
 
     if (d.status === 'running'){
       setStatus('running');

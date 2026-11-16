@@ -523,11 +523,24 @@ def parse_csv(path, params, meta=None):
             "suffix": suffix,
             "line": line,
         })
-        # CSV 已按「速度降序（未测下载时按延迟升序）」排好，取前 N 条即可。
-        # 注意 cfst 的 -p 只管控制台显示，CSV 里是全量结果，必须在这里截断。
-        if len(rows) >= topn:
-            break
-    return rows
+
+    # 最终结果统一按「下载速度降序」排（dltest 是多线程并行完成，CSV 里的顺序
+    # 就是完成顺序，不排的话最快的 IP 可能排在最后）。
+    def _spd(r):
+        try:
+            return float(r["speed"] or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    rows.sort(key=_spd, reverse=True)
+
+    # 测出 0 速度的 IP 不能用，直接不展示。只有整批都没测速（跳过下载测速 /
+    # 只探数据中心）时才保留，否则会把结果全清空。
+    if any(_spd(r) > 0 for r in rows):
+        rows = [r for r in rows if _spd(r) > 0]
+
+    # 注意 cfst 的 -p 只管控制台显示，CSV 里是全量结果，必须在这里截断。
+    return rows[:topn]
 
 
 def run_cfst(cmd):
