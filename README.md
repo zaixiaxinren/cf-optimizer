@@ -454,11 +454,11 @@ docker buildx imagetools inspect <你的用户名>/cf-optimizer:1.0.0   # 看是
 
 #### 5. 改掉占位符
 
-发布前把这几处的 `YOUR_DOCKERHUB_USER` / `YOUR_GITHUB_USER` 换成你的：
+发布前把这几处的 `YOUR_DOCKERHUB_USER` / `YOUR_GITHUB_USER` 换成你的（workflow 里用的是 Secret，
+不用改）：
 
 ```bash
-grep -rn "YOUR_DOCKERHUB_USER\|YOUR_GITHUB_USER" \
-  README.md docker-compose.yml Dockerfile .github/workflows/docker-publish.yml
+grep -rn "YOUR_DOCKERHUB_USER\|YOUR_GITHUB_USER" README.md docker-compose.yml Dockerfile
 ```
 
 改完再提交一次，徽章和 `docker pull` 命令就都对了。
