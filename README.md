@@ -1,10 +1,16 @@
 # CF 优选 IP · 自动测速与推送
 
-[![Build and push image](https://github.com/YOUR_GITHUB_USER/cf-optimizer/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/YOUR_GITHUB_USER/cf-optimizer/actions/workflows/docker-publish.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/YOUR_DOCKERHUB_USER/cf-optimizer)](https://hub.docker.com/r/YOUR_DOCKERHUB_USER/cf-optimizer)
-[![Image Size](https://img.shields.io/docker/image-size/YOUR_DOCKERHUB_USER/cf-optimizer/latest)](https://hub.docker.com/r/YOUR_DOCKERHUB_USER/cf-optimizer)
-[![Platform](https://img.shields.io/badge/platform-amd64%20%7C%20arm64-blue)](https://hub.docker.com/r/YOUR_DOCKERHUB_USER/cf-optimizer)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![Build and push image](https://github.com/zaixiaxinren/cf-optimizer/actions/workflows/docker-publish.yml/badge.svg)
+
+
+
+![Docker Pulls](https://img.shields.io/docker/pulls/YOUR_DOCKERHUB_USER/cf-optimizer)
+
+![Image Size](https://img.shields.io/docker/image-size/YOUR_DOCKERHUB_USER/cf-optimizer/latest)
+
+![Platform](https://img.shields.io/badge/platform-amd64%20%7C%20arm64-blue)
+
+![License](https://img.shields.io/badge/license-MIT-green)
 
 [CloudflareST](https://github.com/XIU2/CloudflareSpeedTest) 的容器化封装：**定时**从多个公开 IP 列表拉取候选 → 延迟测速 → **并行**下载测速 → 按阈值筛选 → 自动推送到 [CFNext](https://github.com/PAICNI/CFNext) 面板的「优选 IP」列表。
 
@@ -27,16 +33,16 @@ docker run -d --name cf-optimizer --restart unless-stopped \
 
 ## 特性
 
-| 能力 | 说明 |
-|---|---|
-| **多个候选来源** | 可填任意多个公开 txt 地址，也可以直接粘贴；合并后统一去重，同一个 IP 只测一次 |
-| **输入格式自适应** | `1.1.1.1`、`1.1.1.0/24`、`1.1.1.1:8443`、`1.1.1.1:443#备注`、**域名**（自动 DNS 解析成 IP）都能直接吃 |
-| **并行下载测速** | cfst 自带的下载测速是串行的，本项目自研线程池同时测多个 IP，并发数可调 |
-| **进度条** | WebUI 实时显示「已测 / 总数 / 还剩多少个 / 可用数」，分延迟、下载两个阶段 |
-| **定时任务在网页上配** | 开关、频率、cron 表达式、是否自动推送，全部网页操作，保存即生效 |
-| **后缀可自定义** | 用源列表自带的 `#备注` / 数据中心码（`#LAX`）/ 固定文本 / 自定义模板 |
-| **一键推送** | 直写 CFNext 面板的 `preferredIPs`，写前读旧值、写后回读校验 |
-| **零第三方依赖** | 后端是 Python3 标准库，不用 pip、不用 Node、不用数据库 |
+| 能力            | 说明                                                                                |
+| ------------- | --------------------------------------------------------------------------------- |
+| **多个候选来源**    | 可填任意多个公开 txt 地址，也可以直接粘贴；合并后统一去重，同一个 IP 只测一次                                       |
+| **输入格式自适应**   | `1.1.1.1`、`1.1.1.0/24`、`1.1.1.1:8443`、`1.1.1.1:443#备注`、**域名**（自动 DNS 解析成 IP）都能直接吃 |
+| **并行下载测速**    | cfst 自带的下载测速是串行的，本项目自研线程池同时测多个 IP，并发数可调                                           |
+| **进度条**       | WebUI 实时显示「已测 / 总数 / 还剩多少个 / 可用数」，分延迟、下载两个阶段                                      |
+| **定时任务在网页上配** | 开关、频率、cron 表达式、是否自动推送，全部网页操作，保存即生效                                                |
+| **后缀可自定义**    | 用源列表自带的 `#备注` / 数据中心码（`#LAX`）/ 固定文本 / 自定义模板                                       |
+| **一键推送**      | 直写 CFNext 面板的 `preferredIPs`，写前读旧值、写后回读校验                                         |
+| **零第三方依赖**    | 后端是 Python3 标准库，不用 pip、不用 Node、不用数据库                                              |
 
 ---
 
@@ -72,6 +78,7 @@ docker compose logs -f     # 看到 [init] Web 控制台已启动 即可
 镜像支持 **amd64 / arm64** 双架构，群晖、威联通、飞牛、树莓派都会自动拉对架构。
 
 > 只想要 Docker 命令、不用 compose 也可以：
+>
 > ```bash
 > docker run -d --name cf-optimizer --restart unless-stopped \
 >   -p 8090:8090 -v $PWD/data:/data -v $PWD/out:/out \
@@ -84,7 +91,7 @@ docker compose logs -f     # 看到 [init] Web 控制台已启动 即可
 适合想改代码、或在内网无法拉镜像的场景。
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USER/cf-optimizer.git
+git clone https://github.com/zaixiaxinren/cf-optimizer.git
 cd cf-optimizer
 
 # 把 compose 里的 image 换成 cf-optimizer:local，并解开 build 那行
@@ -93,7 +100,7 @@ sed -i 's#^    image:.*#    image: cf-optimizer:local#; s#^    \# build: \.#    
 docker compose up -d --build
 ```
 
-首次构建会从 GitHub 下载 CloudflareST（约 8 MB）。国内网络慢可以把 `cfst` 二进制直接放到构建目录，
+首次构建会从 GitHub 下载 CloudflareST（约 8 MB）。国内网络慢可以把 `cfst` 二进制直接放到构建目录，  
 Dockerfile 会优先用本地文件，离线也能构建；也可以用代理：
 
 ```bash
@@ -116,11 +123,11 @@ docker compose build --build-arg CFST_VERSION=2.3.5
 
 ### 镜像标签
 
-| 标签 | 说明 |
-|---|---|
-| `latest` | 最新稳定版 |
-| `1.2.3` | 固定版本，生产建议用它，避免 `latest` 变更带来意外 |
-| `1.2` | 同一小版本的最新补丁 |
+| 标签       | 说明                             |
+| -------- | ------------------------------ |
+| `latest` | 最新稳定版                          |
+| `1.2.3`  | 固定版本，生产建议用它，避免 `latest` 变更带来意外 |
+| `1.2`    | 同一小版本的最新补丁                     |
 
 ---
 
@@ -174,64 +181,64 @@ www.shopify.com:443#企业域名   # 域名（自动 DNS 解析成 IP）
 # 这是注释                      # # 开头整行忽略
 ```
 
-> 域名解析后会按内置的 Cloudflare 官方网段过滤，非 CF 的 IP（例如 Shopify、其他 CDN）会被剔除——
+> 域名解析后会按内置的 Cloudflare 官方网段过滤，非 CF 的 IP（例如 Shopify、其他 CDN）会被剔除——  
 > 否则测出来再快也不能当优选 IP 用。
 
 ### 筛选参数
 
-| 参数 | 默认 | 说明 |
-|---|---|---|
-| 端口 | 443 | 测速与输出使用的端口 |
-| 延迟上限 | 350 ms | 超过就丢弃。**先跑一轮看实际延迟再定**，设太低会 0 条结果 |
-| 速度下限 | 0 MB/s | 0 = 不按速度过滤。想筛就设 1~2，别超过实际带宽 |
-| 保留条数 | 10 | 最终最多留下几个 |
-| 并发线程 | 100 | cfst 延迟测速线程数，弱设备别开太高 |
-| Ping 次数 | 4 | 单个 IP 延迟测速次数 |
-| 测速地址 | `speed.cloudflare.com/__down?bytes=50000000` | 下载测速用的 URL |
+| 参数      | 默认                                           | 说明                               |
+| ------- | -------------------------------------------- | -------------------------------- |
+| 端口      | 443                                          | 测速与输出使用的端口                       |
+| 延迟上限    | 350 ms                                       | 超过就丢弃。**先跑一轮看实际延迟再定**，设太低会 0 条结果 |
+| 速度下限    | 0 MB/s                                       | 0 = 不按速度过滤。想筛就设 1~2，别超过实际带宽      |
+| 保留条数    | 10                                           | 最终最多留下几个                         |
+| 并发线程    | 100                                          | cfst 延迟测速线程数，弱设备别开太高             |
+| Ping 次数 | 4                                            | 单个 IP 延迟测速次数                     |
+| 测速地址    | `speed.cloudflare.com/__down?bytes=50000000` | 下载测速用的 URL                       |
 
 ### 并行下载测速
 
-| 参数 | 默认 | 说明 |
-|---|---|---|
-| 下载测速数量 | 10 | 从延迟最低的 IP 里取几个测下载速度 |
-| **并行下载数** | 4 | **同时测几个 IP**（1~32） |
-| 单个测速时长 | 10 s | 单个 IP 最多测多久 |
-| 跳过下载测速 | 关 | 勾上只比延迟，快很多，但没有速度数据 |
+| 参数        | 默认   | 说明                  |
+| --------- | ---- | ------------------- |
+| 下载测速数量    | 10   | 从延迟最低的 IP 里取几个测下载速度 |
+| **并行下载数** | 4    | **同时测几个 IP**（1~32）  |
+| 单个测速时长    | 10 s | 单个 IP 最多测多久         |
+| 跳过下载测速    | 关    | 勾上只比延迟，快很多，但没有速度数据  |
 
-**关于并发的取舍**：并发越高越省时间——4 个 IP、单个 6 秒，串行要 24 秒，并发 4 只要 6 秒。
-但多个 IP 抢同一条出口带宽，测出来的速度会失真（可能偏高也可能偏低，取决于拥塞和服务器分配）。
+**关于并发的取舍**：并发越高越省时间——4 个 IP、单个 6 秒，串行要 24 秒，并发 4 只要 6 秒。  
+但多个 IP 抢同一条出口带宽，测出来的速度会失真（可能偏高也可能偏低，取决于拥塞和服务器分配）。  
 **想要可横向比较的准确数值，把并行数设成 1**；只想快速筛掉明显不通的，设 4~8 都行。
 
-> 顺带修掉一个坑：cfst 在「只测延迟」（`-dd`）模式下，结果里的「地区码」列恒为 `N/A`。
+> 顺带修掉一个坑：cfst 在「只测延迟」（`-dd`）模式下，结果里的「地区码」列恒为 `N/A`。  
 > 本项目在下载测速时读取响应的 `cf-ray` 头把数据中心补上，所以「数据中心」后缀仍能正常显示。
 
 ### 输出后缀
 
-| 模式 | 输出示例 | 说明 |
-|---|---|---|
-| 源列表里的 `#备注` | `104.16.0.1:443#教育域名 \| 岭南大学` | 推荐。没有备注时回退到数据中心码 |
-| 数据中心 | `104.16.0.1:443#LAX` | 用 cfst 识别出的地区码 |
-| 固定文本 | `104.16.0.1:443#香港优化` | 全部用同一个后缀 |
-| 不带后缀 | `104.16.0.1:443` | 干净格式 |
-| 自定义模板 | `104.16.0.1:443#LAX-194ms` | 支持 `{colo}` `{latency}` `{speed}` |
+| 模式          | 输出示例                          | 说明                                |
+| ----------- | ----------------------------- | --------------------------------- |
+| 源列表里的 `#备注` | `104.16.0.1:443#教育域名 \| 岭南大学` | 推荐。没有备注时回退到数据中心码                  |
+| 数据中心        | `104.16.0.1:443#LAX`          | 用 cfst 识别出的地区码                    |
+| 固定文本        | `104.16.0.1:443#香港优化`         | 全部用同一个后缀                          |
+| 不带后缀        | `104.16.0.1:443`              | 干净格式                              |
+| 自定义模板       | `104.16.0.1:443#LAX-194ms`    | 支持 `{colo}` `{latency}` `{speed}` |
 
 ### CFNext 面板
 
-| 参数 | 说明 |
-|---|---|
-| 面板入口地址 | 登录时浏览器地址栏里那个完整地址，**含入口路径**（如 `https://xxx.pages.dev/vvbo`） |
+| 参数     | 说明                                                                     |
+| ------ | ---------------------------------------------------------------------- |
+| 面板入口地址 | 登录时浏览器地址栏里那个完整地址，**含入口路径**（如 `https://xxx.pages.dev/vvbo`）             |
 | 面板管理密码 | 存在 `/data/web-config.json`；**接口不会把密码回传给浏览器**，页面上只显示「已保存」。想改就重输，留空表示不修改 |
 
 ### 定时任务
 
-| 项 | 说明 |
-|---|---|
-| 启用定时自动测速 | 关掉就只在你点「开始测速」时跑 |
-| 运行频率 | 每 1/2/4/6/12 小时、每天定点、每周一，或「自定义…」 |
-| cron 表达式 | 标准五段式（分 时 日 月 周），下方实时显示**下次运行时间** |
-| 定时跑完自动推送到 CFNext | 关掉就只写本地 `/out` |
+| 项                | 说明                                |
+| ---------------- | --------------------------------- |
+| 启用定时自动测速         | 关掉就只在你点「开始测速」时跑                   |
+| 运行频率             | 每 1/2/4/6/12 小时、每天定点、每周一，或「自定义…」  |
+| cron 表达式         | 标准五段式（分 时 日 月 周），下方实时显示**下次运行时间** |
+| 定时跑完自动推送到 CFNext | 关掉就只写本地 `/out`                    |
 
-保存后**立即生效**：服务端重写容器内的 `/etc/crontabs/root`，并让 crond 重新加载，不需要重启容器。
+保存后**立即生效**：服务端重写容器内的 `/etc/crontabs/root`，并让 crond 重新加载，不需要重启容器。  
 顶部还有一个「下次 明天 08:00」的小标记。
 
 写法示例：
@@ -251,37 +258,37 @@ www.shopify.com:443#企业域名   # 域名（自动 DNS 解析成 IP）
 网页上保存的配置  >  docker-compose 里的环境变量  >  脚本内置默认值
 ```
 
-所以**日常只改网页就够了**，compose 里的值只是首次使用的兜底。
+所以**日常只改网页就够了**，compose 里的值只是首次使用的兜底。  
 定时任务的命令行（`run.sh`）每轮都会重新读一次网页配置，不会出现「网页改了、定时还在用旧值」。
 
 环境变量完整列表：
 
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `TZ` | — | 时区，建议 `Asia/Shanghai` |
-| `WEB_PORT` | `8090` | WebUI 端口 |
-| `CRON` | `0 */2 * * *` | 仅作初始兜底，网页设置过之后不再读取 |
-| `RUN_ON_START` | `0` | 容器启动时是否立刻跑一轮 |
-| `LATENCY_MAX` | `350` | 延迟上限（ms） |
-| `SPEED_MIN` | `0` | 速度下限（MB/s） |
-| `TOP_N` | `10` | 保留条数 |
-| `PORT` | `443` | 测速端口 |
-| `THREADS` | `100` | 延迟测速线程数 |
-| `PING_TIMES` | `4` | 延迟测速次数 |
-| `SPEED_URL` | `speed.cloudflare.com/...` | 下载测速地址 |
-| `DISABLE_DL` | `0` | `1` = 跳过下载测速 |
-| `DL_COUNT` | `10` | 下载测速数量 |
-| `DL_PARALLEL` | `4` | 并行下载测速数量 |
-| `DL_TIME` | `10` | 单个 IP 测速时长上限（秒） |
-| `SUFFIX_MODE` | `source` | `source` / `colo` / `fixed` / `none` |
-| `TAG` | `auto` | `SUFFIX_MODE=fixed` 时使用；数据中心识别失败也回退到它 |
-| `KEEP_HISTORY` | `20` | 历史结果保留份数 |
-| `PUSH_MODE` | `panel` | `panel` 直写面板 / `webhook` POST 到自建 Worker / `none` 只留本地 |
-| `PANEL_URL` | — | 面板入口（网页没填时兜底） |
-| `PANEL_PASSWORD` | — | 面板密码（网页没填时兜底，建议放 `.env`） |
-| `PANEL_FORCE_CUSTOM` | `1` | 推送时把订阅模式切成「只用优选 IP」 |
-| `CF_ONLY` | `1` | 只保留 Cloudflare 官方段的 IP |
-| `WEBHOOK_URL` / `WEBHOOK_TOKEN` | — | `PUSH_MODE=webhook` 时使用 |
+| 变量                              | 默认                         | 说明                                                     |
+| ------------------------------- | -------------------------- | ------------------------------------------------------ |
+| `TZ`                            | —                          | 时区，建议 `Asia/Shanghai`                                  |
+| `WEB_PORT`                      | `8090`                     | WebUI 端口                                               |
+| `CRON`                          | `0 */2 * * *`              | 仅作初始兜底，网页设置过之后不再读取                                     |
+| `RUN_ON_START`                  | `0`                        | 容器启动时是否立刻跑一轮                                           |
+| `LATENCY_MAX`                   | `350`                      | 延迟上限（ms）                                               |
+| `SPEED_MIN`                     | `0`                        | 速度下限（MB/s）                                             |
+| `TOP_N`                         | `10`                       | 保留条数                                                   |
+| `PORT`                          | `443`                      | 测速端口                                                   |
+| `THREADS`                       | `100`                      | 延迟测速线程数                                                |
+| `PING_TIMES`                    | `4`                        | 延迟测速次数                                                 |
+| `SPEED_URL`                     | `speed.cloudflare.com/...` | 下载测速地址                                                 |
+| `DISABLE_DL`                    | `0`                        | `1` = 跳过下载测速                                           |
+| `DL_COUNT`                      | `10`                       | 下载测速数量                                                 |
+| `DL_PARALLEL`                   | `4`                        | 并行下载测速数量                                               |
+| `DL_TIME`                       | `10`                       | 单个 IP 测速时长上限（秒）                                        |
+| `SUFFIX_MODE`                   | `source`                   | `source` / `colo` / `fixed` / `none`                   |
+| `TAG`                           | `auto`                     | `SUFFIX_MODE=fixed` 时使用；数据中心识别失败也回退到它                  |
+| `KEEP_HISTORY`                  | `20`                       | 历史结果保留份数                                               |
+| `PUSH_MODE`                     | `panel`                    | `panel` 直写面板 / `webhook` POST 到自建 Worker / `none` 只留本地 |
+| `PANEL_URL`                     | —                          | 面板入口（网页没填时兜底）                                          |
+| `PANEL_PASSWORD`                | —                          | 面板密码（网页没填时兜底，建议放 `.env`）                               |
+| `PANEL_FORCE_CUSTOM`            | `1`                        | 推送时把订阅模式切成「只用优选 IP」                                    |
+| `CF_ONLY`                       | `1`                        | 只保留 Cloudflare 官方段的 IP                                 |
+| `WEBHOOK_URL` / `WEBHOOK_TOKEN` | —                          | `PUSH_MODE=webhook` 时使用                                |
 
 ---
 
@@ -290,7 +297,7 @@ www.shopify.com:443#企业域名   # 域名（自动 DNS 解析成 IP）
 1. **拉取候选**：依次下载 `source_urls` 里的每个 txt，加上手填内容，合并
 2. **解析**：域名走 DNS 解析；`IP:端口#备注` 拆开（端口和备注存进映射表）；按 CF 官方网段剔除外部 IP；去重
 3. **延迟测速**：`cfst -dd`（只测延迟），产出按延迟升序的 CSV
-4. **并行下载测速**：取延迟最低的 `DL_COUNT` 个，用 `DL_PARALLEL` 个线程同时下载 `DL_TIME` 秒，
+4. **并行下载测速**：取延迟最低的 `DL_COUNT` 个，用 `DL_PARALLEL` 个线程同时下载 `DL_TIME` 秒，  
    算出 MB/s，顺便从 `cf-ray` 头取数据中心
 5. **筛选**：按速度下限过滤、按速度降序排列，取前 `TOP_N` 个，拼成 `IP:端口#后缀`
 6. **推送**（定时任务且勾了自动推送时）：写进面板的 `preferredIPs`，回读校验
@@ -311,12 +318,12 @@ www.shopify.com:443#企业域名   # 域名（自动 DNS 解析成 IP）
 
 **坑 1：`/vvbo` 只是登录入口，API 不在它下面。**
 
-登录后内部 API 前缀是另一条 uuid 路径，写在控制台页面的 `var APIPATH = "..."` 里。
+登录后内部 API 前缀是另一条 uuid 路径，写在控制台页面的 `var APIPATH = "..."` 里。  
 脚本每次运行都会先登录、抓控制台页、提取这个值——所以面板改了路径也不用改脚本。
 
 **坑 2：推送是「整体替换」，不是追加。**
 
-`POST <APIPATH>/api/config` 传 `preferredIPs` 会把面板上的列表**整份换掉**。
+`POST <APIPATH>/api/config` 传 `preferredIPs` 会把面板上的列表**整份换掉**。  
 `run.sh` 在没有结果时会直接退出、不清空面板，但如果你手动推了一轮不合意的结果，原来的列表就没了。
 
 请求流程：
@@ -354,7 +361,7 @@ curl -b ck.txt -X POST https://<面板>/<APIPATH>/api/config \
 
 **Q：为什么并行下载数调大以后，速度数字变了？**
 
-几个 IP 同时下载会分同一条出口带宽，单 IP 的测量值就不再代表它的真实能力。
+几个 IP 同时下载会分同一条出口带宽，单 IP 的测量值就不再代表它的真实能力。  
 这只是「筛掉明显不通的 IP」的手段；要横向比较快慢，把并行数设成 1。
 
 **Q：定时到点了没跑？**
@@ -366,7 +373,7 @@ curl -b ck.txt -X POST https://<面板>/<APIPATH>/api/config \
 
 **Q：面板密码忘了 / 想换面板？**
 
-网页左栏「CFNext 面板」里重填一遍，密码**留空表示不修改**。真忘了就删掉
+网页左栏「CFNext 面板」里重填一遍，密码**留空表示不修改**。真忘了就删掉  
 `/data/web-config.json` 里的 `panel_password` 字段，或者整个文件（配置会回到默认值）。
 
 **Q：支持 IPv6 吗？**
@@ -375,7 +382,10 @@ curl -b ck.txt -X POST https://<面板>/<APIPATH>/api/config \
 
 **Q：备注里有中文，推送会不会乱码？**
 
-不会。推送前会把结果转成 JSON，中文和 `|` 都做过转义验证。
+|                          |             |
+| ------------------------ | ----------- |
+| 不会。推送前会把结果转成 JSON，中文和 \` | \` 都做过转义验证。 |
+
 
 **Q：8090 端口被占用？**
 
@@ -408,6 +418,8 @@ git push -u origin main
 ```
 
 > 推之前确认 `.gitignore` 生效：`git status` 里**不应该**出现 `data/`、`out/`、`.env`、`cfst`。
+|  |  |  |  |  |
+| --- | --- | --- | --- | --- |
 > 这几个都含敏感信息或几十 MB 的二进制。用 `git ls-files | grep -E "^(data/|out/|\.env$|cfst$)"` 检查，有输出就说明漏了。
 
 #### 1. 注册 Docker Hub 并建仓库
