@@ -4,7 +4,7 @@ services:
   cf-optimizer:
     # ---- 用哪个镜像 ----
     # 方式一（推荐）：直接用 Docker Hub 上的公开镜像
-    image: YOUR_DOCKERHUB_USER/cf-optimizer:latest
+    image: zaixiaxinren/cf-optimizer:latest
     # 方式二：自己构建。把上面 image 改成 cf-optimizer:local，并解开下面这行
     # build: .
     container_name: cf-optimizer

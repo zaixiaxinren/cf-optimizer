@@ -2,11 +2,11 @@
 
 ![Build and push image](https://github.com/zaixiaxinren/cf-optimizer/actions/workflows/docker-publish.yml/badge.svg)
 
+![Docker Pulls](https://img.shields.io/docker/pulls/zaixiaxinren/cf-optimizer)
 
 
-![Docker Pulls](https://img.shields.io/docker/pulls/YOUR_DOCKERHUB_USER/cf-optimizer)
 
-![Image Size](https://img.shields.io/docker/image-size/YOUR_DOCKERHUB_USER/cf-optimizer/latest)
+![Image Size](https://img.shields.io/docker/image-size/zaixiaxinren/cf-optimizer/latest)
 
 ![Platform](https://img.shields.io/badge/platform-amd64%20%7C%20arm64-blue)
 
@@ -19,7 +19,7 @@
 ```bash
 docker run -d --name cf-optimizer --restart unless-stopped \
   -p 8090:8090 -v $PWD/data:/data -v $PWD/out:/out \
-  YOUR_DOCKERHUB_USER/cf-optimizer:latest
+  zaixiaxinren/cf-optimizer:latest
 ```
 
 ```
@@ -59,7 +59,7 @@ mkdir -p data out
 cat > docker-compose.yml <<'EOF'
 services:
   cf-optimizer:
-    image: YOUR_DOCKERHUB_USER/cf-optimizer:latest
+    image: zaixiaxinren/cf-optimizer:latest
     container_name: cf-optimizer
     restart: unless-stopped
     ports:
@@ -83,7 +83,7 @@ docker compose logs -f     # 看到 [init] Web 控制台已启动 即可
 > docker run -d --name cf-optimizer --restart unless-stopped \
 >   -p 8090:8090 -v $PWD/data:/data -v $PWD/out:/out \
 >   -e TZ=Asia/Shanghai \
->   YOUR_DOCKERHUB_USER/cf-optimizer:latest
+>   zaixiaxinren/cf-optimizer:latest
 > ```
 
 ### 方式 B：自己构建
@@ -290,6 +290,8 @@ www.shopify.com:443#企业域名   # 域名（自动 DNS 解析成 IP）
 | `CF_ONLY`                       | `1`                        | 只保留 Cloudflare 官方段的 IP                                 |
 | `WEBHOOK_URL` / `WEBHOOK_TOKEN` | —                          | `PUSH_MODE=webhook` 时使用                                |
 
+
+
 ---
 
 ## 工作流程（一轮任务做了什么）
@@ -464,16 +466,20 @@ docker buildx imagetools inspect <你的用户名>/cf-optimizer:1.0.0   # 看是
 
 同时也会推到 `ghcr.io/<你的GitHub用户名>/cf-optimizer`（用内置 `GITHUB_TOKEN`，不用额外配置）。
 
-#### 5. 改掉占位符
+#### 5. 仓库信息已填好
 
-发布前把这几处的 `YOUR_DOCKERHUB_USER` / `YOUR_GITHUB_USER` 换成你的（workflow 里用的是 Secret，
-不用改）：
+本仓库的镜像地址已经固定为 `zaixiaxinren/cf-optimizer`，徽章、`docker run` 示例、compose 和
+Dockerfile 里的 OCI 标签都已指向它，**不需要再改**。
+
+如果你是 fork 后改成自己的镜像名：
 
 ```bash
-grep -rn "YOUR_DOCKERHUB_USER\|YOUR_GITHUB_USER" README.md docker-compose.yml Dockerfile
+# 把三处地址换成你的用户名
+grep -rn "zaixiaxinren" README.md docker-compose.yml Dockerfile
 ```
 
-改完再提交一次，徽章和 `docker pull` 命令就都对了。
+同时把 `.github/workflows/docker-publish.yml` 里的 `secrets.DOCKERHUB_USERNAME` 保持不写死
+（它读的是 Secret，天然跟着 fork 走）。
 
 ### 方式二：本地构建推送
 

@@ -6,7 +6,7 @@ LABEL org.opencontainers.image.title="cf-optimizer" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/zaixiaxinren/cf-optimizer" \
       org.opencontainers.image.documentation="https://github.com/zaixiaxinren/cf-optimizer/blob/main/README.md" \
-      org.opencontainers.image.url="https://hub.docker.com/r/YOUR_DOCKERHUB_USER/cf-optimizer"
+      org.opencontainers.image.url="https://hub.docker.com/r/zaixiaxinren/cf-optimizer"
 
 # buildx 注入的目标架构，普通 docker build 时默认为 amd64
 ARG TARGETARCH=amd64
